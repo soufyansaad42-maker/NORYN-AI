@@ -1,0 +1,26 @@
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#080b14;--panel:#0e1322;--panel2:#151b2d;--border:#252c40;--text:#f5f7ff;--muted:#8d96ab;--accent:#6d5dfc;--accent2:#8d7fff;--user:#1c2540}
+body.light{--bg:#f5f7fb;--panel:#fff;--panel2:#eef1f7;--border:#dce1eb;--text:#171a23;--muted:#687083;--user:#e9edff}
+html,body{width:100%;height:100%}
+body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;transition:.25s}
+button,textarea{font:inherit}button{cursor:pointer;border:0}
+.app{height:100dvh;display:flex;flex-direction:column}
+.topbar{height:70px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:11px}
+.logo,.welcome-logo{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:900;box-shadow:0 0 25px rgba(109,93,252,.25)}
+.logo{width:42px;height:42px;border-radius:13px;font-size:22px}
+.brand h1{font-size:17px}.brand span{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+.icon-btn{width:40px;height:40px;border-radius:12px;background:var(--panel2);color:var(--text);font-size:18px}
+.chat{flex:1;overflow-y:auto;padding:24px 14px 140px}
+.welcome{max-width:650px;margin:50px auto 0;text-align:center}
+.welcome-logo{width:72px;height:72px;margin:auto;border-radius:23px;font-size:38px}
+.welcome h2{margin-top:22px;font-size:25px}.welcome p{max-width:480px;margin:12px auto;color:var(--muted);line-height:1.7}
+.suggestions{display:grid;gap:10px;margin-top:30px}.suggestion{padding:15px;border:1px solid var(--border);border-radius:15px;background:var(--panel);color:var(--text);text-align:right;transition:.2s}.suggestion:hover{border-color:var(--accent);transform:translateY(-2px)}
+.message{display:flex;margin:14px auto;max-width:800px}.message.user{justify-content:flex-start}.message.ai{justify-content:flex-end}
+.bubble{max-width:85%;padding:13px 15px;border-radius:17px;line-height:1.7;white-space:pre-wrap}.user .bubble{background:var(--user);border-bottom-left-radius:5px}.ai .bubble{background:var(--panel2);border-bottom-right-radius:5px}
+.composer{position:fixed;bottom:0;left:0;right:0;padding:10px 12px 12px;background:linear-gradient(transparent,var(--bg) 25%)}
+.input-box{max-width:850px;margin:auto;display:flex;align-items:flex-end;gap:8px;padding:8px;background:var(--panel);border:1px solid var(--border);border-radius:19px;box-shadow:0 -5px 30px rgba(0,0,0,.12)}
+textarea{flex:1;min-height:44px;max-height:130px;padding:12px;resize:none;outline:0;border:0;background:transparent;color:var(--text);line-height:1.5}textarea::placeholder{color:var(--muted)}
+.send-btn{width:44px;height:44px;flex-shrink:0;border-radius:14px;background:var(--accent);color:#fff;font-size:20px}.send-btn:active{transform:scale(.9)}
+.disclaimer{margin-top:6px;text-align:center;color:var(--muted);font-size:9px}
+@media(min-width:700px){.topbar{padding:0 28px}.chat{padding-left:25px;padding-right:25px}.suggestions{grid-template-columns:repeat(3,1fr)}.suggestion{text-align:center}.composer{padding-left:25px;padding-right:25px}}

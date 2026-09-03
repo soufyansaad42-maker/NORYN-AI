@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b1020">
+  <title>NORYN AI v3</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">N</div>
+        <div>
+          <h1>NORYN AI</h1>
+          <span>AI Service v3</span>
+        </div>
+      </div>
+      <button id="themeBtn" class="icon-btn" title="تغيير المظهر">☀️</button>
+    </header>
+
+    <main id="chat" class="chat">
+      <section id="welcome" class="welcome">
+        <div class="welcome-logo">N</div>
+        <h2>مرحبًا بك في NORYN AI</h2>
+        <p>المرحلة الثالثة: الواجهة تتصل بـ Node.js ثم بخدمة Python.</p>
+        <div class="suggestions">
+          <button class="suggestion">💻 أنشئ لي صفحة HTML</button>
+          <button class="suggestion">🐛 اشرح لي خطأ برمجي</button>
+          <button class="suggestion">📚 علمني Python</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="composer">
+      <div class="input-box">
+        <textarea id="messageInput" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
+        <button id="sendBtn" class="send-btn">➤</button>
+      </div>
+      <p class="disclaimer">NORYN AI v3 — Python AI Service</p>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
