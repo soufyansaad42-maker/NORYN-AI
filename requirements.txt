@@ -1,2 +1,2 @@
 Flask>=3.0,<4.0
-openai>=1.0
+huggingface-hub>=0.34.0
