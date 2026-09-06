@@ -1,20 +1,16 @@
 /* =========================================================
    NORYN AI v4.5
-   Stable Chat + Memory + Markdown Renderer
-
-   Features:
+   Modern Chat UI
    - Conversation memory
    - Chat history
-   - LocalStorage
-   - General / Code / Learn / Write
    - Markdown rendering
-   - Code blocks
-   - Copy code button
-   - New chat
-   - Delete chat
-   - Suggestions
+   - Copy response
+   - Regenerate response
+   - Like / Dislike
+   - Mobile first
+   - No AI response card
    - Backend /api/chat
-   ========================================================= */
+========================================================= */
 
 (() => {
   "use strict";
@@ -27,10 +23,6 @@
     currentChatId: null,
     chats: []
   };
-
-  /* =========================================================
-     MODE PROMPTS
-     ========================================================= */
 
   const MODE_PROMPTS = {
     general:
@@ -46,13 +38,15 @@
       "أنت NORYN AI، مساعد للكتابة. ساعد في القصص والأفكار والتلخيص وإعادة الصياغة."
   };
 
-  /* =========================================================
-     HELPERS
-     ========================================================= */
+
+  /* =======================================================
+     Helpers
+  ======================================================= */
 
   function $(selector) {
     return document.querySelector(selector);
   }
+
 
   function createId() {
     return (
@@ -63,436 +57,133 @@
     );
   }
 
-  function escapeText(text) {
-    return String(text ?? "");
+
+  /* =======================================================
+     Escape HTML
+  ======================================================= */
+
+  function escapeHTML(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
-  /* =========================================================
-     MARKDOWN RENDERER
-     ========================================================= */
 
-  function renderMarkdown(container, text) {
-    container.replaceChildren();
-
-    const source = escapeText(text);
-    const lines = source.split(/\r?\n/);
-
-    let i = 0;
-
-    while (i < lines.length) {
-      const line = lines[i];
-
-      /* -----------------------------------------------------
-         Code block
-         ----------------------------------------------------- */
-
-      const fenceMatch = line.match(/^```([a-zA-Z0-9_+-]*)\s*$/);
-
-      if (fenceMatch) {
-        const language =
-          fenceMatch[1] || "code";
-
-        const codeLines = [];
-
-        i++;
-
-        while (
-          i < lines.length &&
-          !/^```\s*$/.test(lines[i])
-        ) {
-          codeLines.push(lines[i]);
-          i++;
-        }
-
-        if (i < lines.length) {
-          i++;
-        }
-
-        createCodeBlock(
-          container,
-          codeLines.join("\n"),
-          language
-        );
-
-        continue;
-      }
-
-      /* -----------------------------------------------------
-         Empty line
-         ----------------------------------------------------- */
-
-      if (!line.trim()) {
-        const spacer = document.createElement("div");
-        spacer.className = "md-spacer";
-        container.appendChild(spacer);
-
-        i++;
-        continue;
-      }
-
-      /* -----------------------------------------------------
-         Heading
-         ----------------------------------------------------- */
-
-      const headingMatch =
-        line.match(/^(#{1,6})\s+(.+)$/);
-
-      if (headingMatch) {
-        const level = Math.min(
-          headingMatch[1].length,
-          6
-        );
-
-        const heading =
-          document.createElement("h" + level);
-
-        appendInlineContent(
-          heading,
-          headingMatch[2]
-        );
-
-        container.appendChild(heading);
-
-        i++;
-        continue;
-      }
-
-      /* -----------------------------------------------------
-         Bullet list
-         ----------------------------------------------------- */
-
-      if (/^\s*[-*+]\s+/.test(line)) {
-        const list =
-          document.createElement("ul");
-
-        while (
-          i < lines.length &&
-          /^\s*[-*+]\s+/.test(lines[i])
-        ) {
-          const item =
-            document.createElement("li");
-
-          const content =
-            lines[i].replace(
-              /^\s*[-*+]\s+/,
-              ""
-            );
-
-          appendInlineContent(
-            item,
-            content
-          );
-
-          list.appendChild(item);
-          i++;
-        }
-
-        container.appendChild(list);
-        continue;
-      }
-
-      /* -----------------------------------------------------
-         Numbered list
-         ----------------------------------------------------- */
-
-      if (/^\s*\d+\.\s+/.test(line)) {
-        const list =
-          document.createElement("ol");
-
-        while (
-          i < lines.length &&
-          /^\s*\d+\.\s+/.test(lines[i])
-        ) {
-          const item =
-            document.createElement("li");
-
-          const content =
-            lines[i].replace(
-              /^\s*\d+\.\s+/,
-              ""
-            );
-
-          appendInlineContent(
-            item,
-            content
-          );
-
-          list.appendChild(item);
-          i++;
-        }
-
-        container.appendChild(list);
-        continue;
-      }
-
-      /* -----------------------------------------------------
-         Blockquote
-         ----------------------------------------------------- */
-
-      if (/^\s*>\s?/.test(line)) {
-        const quote =
-          document.createElement("blockquote");
-
-        while (
-          i < lines.length &&
-          /^\s*>\s?/.test(lines[i])
-        ) {
-          const content =
-            lines[i].replace(
-              /^\s*>\s?/,
-              ""
-            );
-
-          const paragraph =
-            document.createElement("div");
-
-          appendInlineContent(
-            paragraph,
-            content
-          );
-
-          quote.appendChild(paragraph);
-          i++;
-        }
-
-        container.appendChild(quote);
-        continue;
-      }
-
-      /* -----------------------------------------------------
-         Normal paragraph
-         ----------------------------------------------------- */
-
-      const paragraph =
-        document.createElement("p");
-
-      appendInlineContent(
-        paragraph,
-        line
-      );
-
-      container.appendChild(paragraph);
-
-      i++;
-    }
-  }
-
-  /* =========================================================
-     INLINE MARKDOWN
-     ========================================================= */
-
-  function appendInlineContent(parent, text) {
-    const value = String(text ?? "");
-
-    const tokenRegex =
-      /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))/g;
-
-    let lastIndex = 0;
-    let match;
-
-    while (
-      (match = tokenRegex.exec(value)) !== null
-    ) {
-      if (match.index > lastIndex) {
-        parent.appendChild(
-          document.createTextNode(
-            value.slice(
-              lastIndex,
-              match.index
-            )
-          )
-        );
-      }
-
-      const token = match[0];
-
-      /* Bold */
-
-      if (
-        token.startsWith("**") ||
-        token.startsWith("__")
-      ) {
-        const strong =
-          document.createElement("strong");
-
-        strong.textContent =
-          token.slice(2, -2);
-
-        parent.appendChild(strong);
-      }
-
-      /* Inline code */
-
-      else if (
-        token.startsWith("`")
-      ) {
-        const code =
-          document.createElement("code");
-
-        code.textContent =
-          token.slice(1, -1);
-
-        parent.appendChild(code);
-      }
-
-      /* Link */
-
-      else if (
-        token.startsWith("[")
-      ) {
-        const label =
-          match[2];
-
-        const url =
-          match[3];
-
-        const link =
-          document.createElement("a");
-
-        link.textContent = label;
-        link.href = url;
-        link.target = "_blank";
-        link.rel =
-          "noopener noreferrer";
-
-        parent.appendChild(link);
-      }
-
-      lastIndex =
-        tokenRegex.lastIndex;
-    }
-
-    if (lastIndex < value.length) {
-      parent.appendChild(
-        document.createTextNode(
-          value.slice(lastIndex)
-        )
-      );
-    }
-  }
-
-  /* =========================================================
-     CODE BLOCK
-     ========================================================= */
-
-  function createCodeBlock(
-    container,
-    code,
-    language
-  ) {
-    const wrapper =
-      document.createElement("div");
-
-    wrapper.className =
-      "code-block";
-
-    const header =
-      document.createElement("div");
-
-    header.className =
-      "code-header";
-
-    const lang =
-      document.createElement("span");
-
-    lang.className =
-      "code-language";
-
-    lang.textContent =
-      language.toUpperCase();
-
-    const copy =
-      document.createElement("button");
-
-    copy.type = "button";
-    copy.className =
-      "copy-code";
-
-    copy.textContent =
-      "📋 نسخ";
-
-    copy.addEventListener(
-      "click",
-      async () => {
-        try {
-          await navigator.clipboard.writeText(
-            code
-          );
-
-          copy.textContent =
-            "✓ تم النسخ";
-
-          setTimeout(() => {
-            copy.textContent =
-              "📋 نسخ";
-          }, 1600);
-
-        } catch (error) {
-          console.error(
-            "Copy error:",
-            error
-          );
-
-          copy.textContent =
-            "تعذر النسخ";
-        }
+  /* =======================================================
+     Markdown Renderer
+     بسيط وآمن بدون مكتبات خارجية
+  ======================================================= */
+
+  function renderMarkdown(text) {
+    let html = escapeHTML(text || "");
+
+    /* Code blocks */
+
+    html = html.replace(
+      /```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g,
+      (_, language, code) => {
+        const lang = language
+          ? `<span class="code-language">${escapeHTML(language)}</span>`
+          : "";
+
+        return `
+          <div class="noryn-code">
+            <div class="code-head">
+              <span>${lang}</span>
+              <button
+                type="button"
+                class="code-copy"
+                data-code="${encodeURIComponent(code)}"
+              >
+                نسخ
+              </button>
+            </div>
+            <pre><code>${code}</code></pre>
+          </div>
+        `;
       }
     );
 
-    header.appendChild(lang);
-    header.appendChild(copy);
+    /* Inline code */
 
-    const pre =
-      document.createElement("pre");
-
-    const codeElement =
-      document.createElement("code");
-
-    codeElement.className =
-      "language-" +
-      language.toLowerCase();
-
-    codeElement.textContent =
-      code;
-
-    pre.appendChild(
-      codeElement
+    html = html.replace(
+      /`([^`\n]+)`/g,
+      "<code class=\"inline-code\">$1</code>"
     );
 
-    wrapper.appendChild(header);
-    wrapper.appendChild(pre);
+    /* Bold */
 
-    container.appendChild(wrapper);
+    html = html.replace(
+      /\*\*(.+?)\*\*/g,
+      "<strong>$1</strong>"
+    );
+
+    /* Headings */
+
+    html = html.replace(
+      /^### (.+)$/gm,
+      "<h3>$1</h3>"
+    );
+
+    html = html.replace(
+      /^## (.+)$/gm,
+      "<h2>$1</h2>"
+    );
+
+    html = html.replace(
+      /^# (.+)$/gm,
+      "<h1>$1</h1>"
+    );
+
+    /* Bullet lists */
+
+    html = html.replace(
+      /^(?:[-*]) (.+)$/gm,
+      "<li>$1</li>"
+    );
+
+    html = html.replace(
+      /(<li>.*<\/li>)/gs,
+      "<ul>$1</ul>"
+    );
+
+    /* Numbered lists */
+
+    html = html.replace(
+      /^\d+\.\s(.+)$/gm,
+      "<li>$1</li>"
+    );
+
+    /* Line breaks */
+
+    html = html.replace(/\n/g, "<br>");
+
+    return html;
   }
 
-  /* =========================================================
-     LOAD / SAVE
-     ========================================================= */
+
+  /* =======================================================
+     Load / Save
+  ======================================================= */
 
   function loadChats() {
     try {
-      const raw =
-        localStorage.getItem(
-          STORAGE_KEY
-        );
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
 
-      const parsed =
-        raw ? JSON.parse(raw) : [];
-
-      state.chats =
-        Array.isArray(parsed)
-          ? parsed
-          : [];
+      state.chats = Array.isArray(parsed)
+        ? parsed
+        : [];
 
     } catch (error) {
-      console.error(
-        "NORYN load error:",
-        error
-      );
-
+      console.error("NORYN load error:", error);
       state.chats = [];
     }
   }
+
 
   function saveChats() {
     try {
@@ -500,85 +191,271 @@
         STORAGE_KEY,
         JSON.stringify(state.chats)
       );
-
     } catch (error) {
-      console.error(
-        "NORYN save error:",
-        error
-      );
+      console.error("NORYN save error:", error);
     }
   }
 
-  /* =========================================================
-     CURRENT CHAT
-     ========================================================= */
+
+  /* =======================================================
+     Current Chat
+  ======================================================= */
 
   function getCurrentChat() {
     return (
       state.chats.find(
-        chat =>
-          chat.id ===
-          state.currentChatId
+        chat => chat.id === state.currentChatId
       ) || null
     );
   }
 
-  /* =========================================================
-     CLEAR
-     ========================================================= */
+
+  /* =======================================================
+     Clear Messages
+  ======================================================= */
 
   function clearMessages() {
-    const messages =
-      $("#messages");
+    const messages = $("#messages");
 
     if (!messages) return;
 
-    messages.replaceChildren();
+    messages.innerHTML = "";
 
-    const welcome =
-      document.createElement("div");
+    const welcome = document.createElement("div");
 
-    welcome.className =
-      "message ai";
+    welcome.className = "message ai welcome-message";
 
-    const welcomeText =
-      document.createElement("div");
+    welcome.innerHTML = `
+      <div class="message-content">
+        مرحبًا! أنا NORYN AI 🤖<br>
+        كيف يمكنني مساعدتك؟
+      </div>
+    `;
 
-    welcomeText.textContent =
-      "مرحبًا! أنا NORYN AI 🤖";
-
-    const welcomeSub =
-      document.createElement("div");
-
-    welcomeSub.textContent =
-      "كيف يمكنني مساعدتك؟";
-
-    welcome.appendChild(
-      welcomeText
-    );
-
-    welcome.appendChild(
-      welcomeSub
-    );
-
-    messages.appendChild(
-      welcome
-    );
+    messages.appendChild(welcome);
   }
 
-  /* =========================================================
-     ADD MESSAGE
-     ========================================================= */
+
+  /* =======================================================
+     Create AI Actions
+  ======================================================= */
+
+  function createActions(messageObject) {
+
+    const actions = document.createElement("div");
+
+    actions.className = "message-actions";
+
+    /* Regenerate */
+
+    const regenerate = document.createElement("button");
+
+    regenerate.type = "button";
+    regenerate.className = "message-action regenerate";
+    regenerate.innerHTML = "↻ <span>إعادة الرد</span>";
+
+    regenerate.addEventListener("click", () => {
+      regenerateResponse(messageObject);
+    });
+
+
+    /* Copy */
+
+    const copy = document.createElement("button");
+
+    copy.type = "button";
+    copy.className = "message-action copy-response";
+
+    copy.innerHTML = "📋 <span>نسخ</span>";
+
+    copy.addEventListener("click", async () => {
+
+      const success = await copyText(
+        messageObject.text
+      );
+
+      if (success) {
+        copy.innerHTML = "✓ <span>تم النسخ</span>";
+
+        setTimeout(() => {
+          copy.innerHTML = "📋 <span>نسخ</span>";
+        }, 1500);
+      }
+    });
+
+
+    /* Like */
+
+    const like = document.createElement("button");
+
+    like.type = "button";
+    like.className = "message-action feedback-like";
+    like.innerHTML = "👍";
+
+    like.addEventListener("click", () => {
+
+      messageObject.feedback =
+        messageObject.feedback === "like"
+          ? null
+          : "like";
+
+      saveChats();
+
+      updateFeedbackButtons(
+        actions,
+        messageObject
+      );
+    });
+
+
+    /* Dislike */
+
+    const dislike = document.createElement("button");
+
+    dislike.type = "button";
+    dislike.className =
+      "message-action feedback-dislike";
+
+    dislike.innerHTML = "👎";
+
+    dislike.addEventListener("click", () => {
+
+      messageObject.feedback =
+        messageObject.feedback === "dislike"
+          ? null
+          : "dislike";
+
+      saveChats();
+
+      updateFeedbackButtons(
+        actions,
+        messageObject
+      );
+    });
+
+
+    actions.appendChild(regenerate);
+    actions.appendChild(copy);
+    actions.appendChild(like);
+    actions.appendChild(dislike);
+
+    updateFeedbackButtons(
+      actions,
+      messageObject
+    );
+
+    return actions;
+  }
+
+
+  /* =======================================================
+     Feedback State
+  ======================================================= */
+
+  function updateFeedbackButtons(
+    actions,
+    messageObject
+  ) {
+
+    const like =
+      actions.querySelector(
+        ".feedback-like"
+      );
+
+    const dislike =
+      actions.querySelector(
+        ".feedback-dislike"
+      );
+
+    if (like) {
+      like.classList.toggle(
+        "selected",
+        messageObject.feedback === "like"
+      );
+    }
+
+    if (dislike) {
+      dislike.classList.toggle(
+        "selected",
+        messageObject.feedback === "dislike"
+      );
+    }
+  }
+
+
+  /* =======================================================
+     Copy
+  ======================================================= */
+
+  async function copyText(text) {
+
+    try {
+
+      if (
+        navigator.clipboard &&
+        window.isSecureContext
+      ) {
+
+        await navigator.clipboard.writeText(
+          String(text)
+        );
+
+        return true;
+      }
+
+      const textarea =
+        document.createElement("textarea");
+
+      textarea.value = String(text);
+
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+
+      document.body.appendChild(textarea);
+
+      textarea.select();
+
+      const success =
+        document.execCommand("copy");
+
+      textarea.remove();
+
+      return success;
+
+    } catch (error) {
+
+      console.error(
+        "Copy error:",
+        error
+      );
+
+      return false;
+    }
+  }
+
+
+  /* =======================================================
+     Add Message
+  ======================================================= */
 
   function addMessage(
     text,
     type,
-    save = true
+    save = true,
+    messageObject = null
   ) {
-    const messages =
-      $("#messages");
+
+    const messages = $("#messages");
 
     if (!messages) return null;
+
+
+    const row =
+      document.createElement("div");
+
+    row.className =
+      "message-row " + type;
+
 
     const item =
       document.createElement("div");
@@ -586,37 +463,93 @@
     item.className =
       "message " + type;
 
-    /*
-      إجابات AI تمر عبر Markdown renderer.
-      رسائل المستخدم تبقى نصًا عاديًا.
-    */
 
     if (type === "ai") {
-      renderMarkdown(
-        item,
-        String(text)
-      );
+
+      const content =
+        document.createElement("div");
+
+      content.className =
+        "message-content";
+
+      content.innerHTML =
+        renderMarkdown(text);
+
+      item.appendChild(content);
+
+      row.appendChild(item);
+
+
+      if (messageObject) {
+
+        const actions =
+          createActions(messageObject);
+
+        row.appendChild(actions);
+      }
+
     } else {
+
       item.textContent =
         String(text);
+
+      row.appendChild(item);
     }
 
-    messages.appendChild(item);
+
+    messages.appendChild(row);
 
     messages.scrollTop =
       messages.scrollHeight;
 
+
+    /* Code copy buttons */
+
+    row.querySelectorAll(
+      ".code-copy"
+    ).forEach(button => {
+
+      button.addEventListener(
+        "click",
+        async () => {
+
+          const code =
+            decodeURIComponent(
+              button.dataset.code || ""
+            );
+
+          const success =
+            await copyText(code);
+
+          if (success) {
+
+            button.textContent =
+              "تم النسخ";
+
+            setTimeout(() => {
+              button.textContent =
+                "نسخ";
+            }, 1500);
+          }
+        }
+      );
+
+    });
+
+
+    /* Save */
+
     if (
       save &&
-      (
-        type === "user" ||
-        type === "ai"
-      )
+      (type === "user" ||
+       type === "ai")
     ) {
+
       const chat =
         getCurrentChat();
 
       if (chat) {
+
         if (
           !Array.isArray(
             chat.messages
@@ -625,14 +558,20 @@
           chat.messages = [];
         }
 
-        chat.messages.push({
-          type: type,
-          text: String(text),
-          time: Date.now()
-        });
+
+        const msg =
+          messageObject || {
+            type,
+            text: String(text),
+            time: Date.now()
+          };
+
+
+        chat.messages.push(msg);
 
         chat.updatedAt =
           Date.now();
+
 
         if (
           type === "user" &&
@@ -642,31 +581,37 @@
               "محادثة جديدة"
           )
         ) {
+
           chat.title =
             String(text)
               .replace(/\s+/g, " ")
               .slice(0, 45);
         }
 
+
         saveChats();
         renderHistory();
       }
     }
 
-    return item;
+
+    return row;
   }
 
-  /* =========================================================
-     RENDER CHAT
-     ========================================================= */
+
+  /* =======================================================
+     Render Chat
+  ======================================================= */
 
   function renderChat(chat) {
+
     const messages =
       $("#messages");
 
     if (!messages) return;
 
-    messages.replaceChildren();
+    messages.innerHTML = "";
+
 
     if (
       !chat ||
@@ -675,49 +620,66 @@
       ) ||
       chat.messages.length === 0
     ) {
+
       clearMessages();
       return;
     }
 
+
     chat.messages.forEach(
       message => {
+
         addMessage(
           message.text,
           message.type,
-          false
+          false,
+          message.type === "ai"
+            ? message
+            : null
         );
+
       }
     );
+
 
     messages.scrollTop =
       messages.scrollHeight;
   }
 
-  /* =========================================================
-     MODE
-     ========================================================= */
+
+  /* =======================================================
+     Mode
+  ======================================================= */
 
   function setMode(mode) {
+
     state.mode =
       mode || "general";
+
 
     document
       .querySelectorAll(
         "[data-mode]"
       )
       .forEach(button => {
+
         button.classList.toggle(
           "active",
           button.dataset.mode ===
             state.mode
         );
+
       });
+
 
     const input =
       $("#message");
 
+
     if (input) {
+
       const placeholders = {
+
         general:
           "اسأل NORYN عن أي شيء...",
 
@@ -731,17 +693,19 @@
           "ماذا تريد أن تكتب؟"
       };
 
+
       input.placeholder =
-        placeholders[
-          state.mode
-        ] ||
+        placeholders[state.mode] ||
         "اكتب رسالتك...";
     }
+
 
     const chat =
       getCurrentChat();
 
+
     if (chat) {
+
       chat.mode =
         state.mode;
 
@@ -752,28 +716,42 @@
     }
   }
 
-  /* =========================================================
-     NEW CHAT
-     ========================================================= */
+
+  /* =======================================================
+     New Chat
+  ======================================================= */
 
   function createNewChat() {
-    if (state.busy) return;
+
+    if (state.busy)
+      return;
+
 
     const chat = {
+
       id: createId(),
-      title: "محادثة جديدة",
-      mode: "general",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+
+      title:
+        "محادثة جديدة",
+
+      mode:
+        "general",
+
+      createdAt:
+        Date.now(),
+
+      updatedAt:
+        Date.now(),
+
       messages: []
     };
 
-    state.chats.unshift(
-      chat
-    );
+
+    state.chats.unshift(chat);
 
     state.currentChatId =
       chat.id;
+
 
     setMode("general");
 
@@ -785,64 +763,82 @@
 
     closeHistory();
 
+
     const input =
       $("#message");
 
+
     if (input) {
+
       input.value = "";
+
       input.focus();
     }
   }
 
-  /* =========================================================
-     OPEN CHAT
-     ========================================================= */
+
+  /* =======================================================
+     Open Chat
+  ======================================================= */
 
   function openChat(id) {
+
     const chat =
       state.chats.find(
         item =>
           item.id === id
       );
 
-    if (!chat) return;
+
+    if (!chat)
+      return;
+
 
     state.currentChatId =
       id;
+
 
     setMode(
       chat.mode ||
       "general"
     );
 
+
     renderChat(chat);
 
     closeHistory();
 
+
     const input =
       $("#message");
 
-    if (input) {
+
+    if (input)
       input.focus();
-    }
   }
 
-  /* =========================================================
-     DELETE CHAT
-     ========================================================= */
+
+  /* =======================================================
+     Delete Chat
+  ======================================================= */
 
   function deleteChat(id) {
+
     const chat =
       state.chats.find(
         item =>
           item.id === id
       );
 
-    if (!chat) return;
+
+    if (!chat)
+      return;
+
 
     const title =
       chat.title ||
       "هذه المحادثة";
+
 
     if (
       !window.confirm(
@@ -854,22 +850,27 @@
       return;
     }
 
+
     state.chats =
       state.chats.filter(
         item =>
           item.id !== id
       );
 
+
     if (
       state.currentChatId ===
       id
     ) {
+
       state.currentChatId =
         null;
+
 
       if (
         state.chats.length > 0
       ) {
+
         const next =
           state.chats
             .slice()
@@ -879,53 +880,70 @@
                 a.updatedAt
             )[0];
 
+
         state.currentChatId =
           next.id;
+
 
         setMode(
           next.mode ||
           "general"
         );
 
+
         renderChat(next);
 
       } else {
+
         createNewChat();
       }
     }
 
+
     saveChats();
+
     renderHistory();
   }
 
-  /* =========================================================
-     HISTORY UI
-     ========================================================= */
+
+  /* =======================================================
+     History
+  ======================================================= */
 
   function renderHistory() {
+
     const list =
       $("#historyList");
 
-    if (!list) return;
 
-    list.replaceChildren();
+    if (!list)
+      return;
+
+
+    list.innerHTML = "";
+
 
     if (!state.chats.length) {
+
       const empty =
         document.createElement(
           "div"
         );
 
+
       empty.className =
         "empty-history";
 
+
       empty.textContent =
         "لا توجد محادثات محفوظة بعد.";
+
 
       list.appendChild(empty);
 
       return;
     }
+
 
     const sorted =
       state.chats
@@ -936,95 +954,120 @@
             a.updatedAt
         );
 
-    sorted.forEach(
-      chat => {
-        const row =
-          document.createElement(
-            "div"
-          );
 
-        row.className =
-          "history-item";
+    sorted.forEach(chat => {
 
-        const open =
-          document.createElement(
-            "button"
-          );
-
-        open.type = "button";
-
-        open.className =
-          "history-open";
-
-        const title =
-          document.createElement(
-            "div"
-          );
-
-        title.className =
-          "history-title";
-
-        title.textContent =
-          chat.title ||
-          "محادثة بدون عنوان";
-
-        open.appendChild(title);
-
-        open.addEventListener(
-          "click",
-          () => {
-            openChat(chat.id);
-          }
+      const row =
+        document.createElement(
+          "div"
         );
 
-        const remove =
-          document.createElement(
-            "button"
+
+      row.className =
+        "history-item";
+
+
+      const open =
+        document.createElement(
+          "button"
+        );
+
+
+      open.type =
+        "button";
+
+      open.className =
+        "history-open";
+
+
+      const title =
+        document.createElement(
+          "div"
+        );
+
+
+      title.className =
+        "history-title";
+
+
+      title.textContent =
+        chat.title ||
+        "محادثة بدون عنوان";
+
+
+      open.appendChild(title);
+
+
+      open.addEventListener(
+        "click",
+        () => {
+          openChat(chat.id);
+        }
+      );
+
+
+      const remove =
+        document.createElement(
+          "button"
+        );
+
+
+      remove.type =
+        "button";
+
+      remove.className =
+        "history-delete";
+
+      remove.textContent =
+        "🗑️";
+
+
+      remove.setAttribute(
+        "aria-label",
+        "حذف المحادثة"
+      );
+
+
+      remove.addEventListener(
+        "click",
+        event => {
+
+          event.stopPropagation();
+
+          deleteChat(
+            chat.id
           );
+        }
+      );
 
-        remove.type = "button";
 
-        remove.className =
-          "history-delete";
+      row.appendChild(open);
 
-        remove.textContent =
-          "🗑️";
+      row.appendChild(remove);
 
-        remove.setAttribute(
-          "aria-label",
-          "حذف المحادثة"
-        );
+      list.appendChild(row);
 
-        remove.addEventListener(
-          "click",
-          event => {
-            event.stopPropagation();
-
-            deleteChat(
-              chat.id
-            );
-          }
-        );
-
-        row.appendChild(open);
-        row.appendChild(remove);
-
-        list.appendChild(row);
-      }
-    );
+    });
   }
 
+
   function openHistory() {
+
     const panel =
       $("#chatPanel");
 
-    if (!panel) return;
+
+    if (!panel)
+      return;
+
 
     renderHistory();
+
 
     panel.classList.add(
       "open"
     );
+
 
     panel.setAttribute(
       "aria-hidden",
@@ -1032,15 +1075,21 @@
     );
   }
 
+
   function closeHistory() {
+
     const panel =
       $("#chatPanel");
 
-    if (!panel) return;
+
+    if (!panel)
+      return;
+
 
     panel.classList.remove(
       "open"
     );
+
 
     panel.setAttribute(
       "aria-hidden",
@@ -1048,21 +1097,27 @@
     );
   }
 
-  /* =========================================================
-     BUSY
-     ========================================================= */
+
+  /* =======================================================
+     Busy
+  ======================================================= */
 
   function setBusy(value) {
+
     state.busy =
       value;
+
 
     const send =
       $("#send");
 
+
     const input =
       $("#message");
 
+
     if (send) {
+
       send.disabled =
         value;
 
@@ -1072,19 +1127,22 @@
           : "إرسال";
     }
 
+
     if (input) {
+
       input.disabled =
         value;
     }
   }
 
-  /* =========================================================
-     CONVERSATION HISTORY
-     ========================================================= */
 
-  function getConversationHistory() {
-    const chat =
-      getCurrentChat();
+  /* =======================================================
+     Conversation History
+  ======================================================= */
+
+  function getConversationHistory(
+    chat = getCurrentChat()
+  ) {
 
     if (
       !chat ||
@@ -1095,69 +1153,207 @@
       return [];
     }
 
-    return chat.messages
-      .filter(
-        message => {
-          return (
-            (
-              message.type ===
-                "user" ||
-              message.type ===
-                "ai"
-            ) &&
-            String(
-              message.text || ""
-            ).trim()
-          );
-        }
-      )
-      .map(
-        message => ({
-          type:
-            message.type,
 
-          text:
-            String(
-              message.text
-            )
-        })
-      );
+    return chat.messages
+      .filter(message => {
+
+        return (
+          (
+            message.type ===
+              "user" ||
+            message.type ===
+              "ai"
+          ) &&
+          String(
+            message.text || ""
+          ).trim()
+        );
+
+      })
+      .map(message => ({
+
+        type:
+          message.type,
+
+        text:
+          String(
+            message.text
+          )
+      }));
   }
 
-  /* =========================================================
-     SEND MESSAGE
-     ========================================================= */
+
+  /* =======================================================
+     Request AI
+  ======================================================= */
+
+  async function requestAI(
+    message,
+    history
+  ) {
+
+    const response =
+      await fetch(
+        "/api/chat",
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            "Accept":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+
+              message:
+                message,
+
+              mode:
+                state.mode,
+
+              system:
+                MODE_PROMPTS[
+                  state.mode
+                ],
+
+              history:
+                history
+            })
+        }
+      );
+
+
+    const raw =
+      await response.text();
+
+
+    const contentType =
+      response.headers.get(
+        "content-type"
+      ) || "";
+
+
+    if (!response.ok) {
+
+      let serverMessage =
+        "HTTP " +
+        response.status;
+
+
+      try {
+
+        const errorData =
+          JSON.parse(raw);
+
+        serverMessage =
+          errorData.error ||
+          errorData.detail ||
+          serverMessage;
+
+      } catch (_) {}
+
+
+      throw new Error(
+        serverMessage
+      );
+    }
+
+
+    if (
+      !contentType.includes(
+        "application/json"
+      )
+    ) {
+
+      throw new Error(
+        "الخادم أعاد HTML بدل JSON."
+      );
+    }
+
+
+    let data;
+
+
+    try {
+
+      data =
+        JSON.parse(raw);
+
+    } catch (_) {
+
+      throw new Error(
+        "الخادم أعاد JSON غير صالح."
+      );
+    }
+
+
+    const reply =
+      data.reply ??
+      data.answer ??
+      data.response ??
+      data.message ??
+      data.text ??
+      data.result ??
+      data.output ??
+      data.content;
+
+
+    if (!reply) {
+
+      throw new Error(
+        data.error ||
+        data.detail ||
+        "لم نجد نص الإجابة."
+      );
+    }
+
+
+    return String(reply);
+  }
+
+
+  /* =======================================================
+     Send Message
+  ======================================================= */
 
   async function sendMessage() {
+
     if (state.busy)
       return;
+
 
     const input =
       $("#message");
 
+
     if (!input)
       return;
+
 
     const text =
       input.value.trim();
 
+
     if (!text)
       return;
+
 
     if (
       !state.currentChatId
     ) {
+
       createNewChat();
     }
 
-    /*
-      نأخذ الذاكرة قبل إضافة
-      الرسالة الحالية حتى لا
-      نرسلها مرتين.
-    */
 
     const history =
       getConversationHistory();
+
 
     addMessage(
       text,
@@ -1165,9 +1361,12 @@
       true
     );
 
+
     input.value = "";
 
+
     setBusy(true);
+
 
     const loading =
       addMessage(
@@ -1176,163 +1375,464 @@
         false
       );
 
+
     try {
-      const response =
-        await fetch(
-          "/api/chat",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              "Accept":
-                "application/json"
-            },
-
-            body:
-              JSON.stringify({
-                message:
-                  text,
-
-                mode:
-                  state.mode,
-
-                system:
-                  MODE_PROMPTS[
-                    state.mode
-                  ],
-
-                history:
-                  history
-              })
-          }
-        );
-
-      const raw =
-        await response.text();
-
-      const contentType =
-        response.headers.get(
-          "content-type"
-        ) || "";
-
-      if (!response.ok) {
-        let serverMessage =
-          "HTTP " +
-          response.status;
-
-        try {
-          const errorData =
-            JSON.parse(raw);
-
-          serverMessage =
-            errorData.error ||
-            errorData.detail ||
-            serverMessage;
-
-        } catch (_) {}
-
-        throw new Error(
-          serverMessage
-        );
-      }
-
-      if (
-        !contentType.includes(
-          "application/json"
-        )
-      ) {
-        throw new Error(
-          "الخادم أعاد HTML بدل JSON."
-        );
-      }
-
-      let data;
-
-      try {
-        data =
-          JSON.parse(raw);
-
-      } catch (_) {
-        throw new Error(
-          "الخادم أعاد JSON غير صالح."
-        );
-      }
 
       const reply =
-        data.reply ??
-        data.answer ??
-        data.response ??
-        data.message ??
-        data.text ??
-        data.result ??
-        data.output ??
-        data.content;
-
-      if (!reply) {
-        throw new Error(
-          data.error ||
-          data.detail ||
-          "لم نجد نص الإجابة."
+        await requestAI(
+          text,
+          history
         );
-      }
+
 
       if (loading) {
+
         loading.remove();
       }
+
+
+      const messageObject = {
+
+        type:
+          "ai",
+
+        text:
+          reply,
+
+        time:
+          Date.now(),
+
+        feedback:
+          null
+      };
+
 
       addMessage(
-        String(reply),
+        reply,
         "ai",
-        true
+        true,
+        messageObject
       );
 
+
     } catch (error) {
+
       if (loading) {
+
         loading.remove();
       }
+
 
       console.error(
         "NORYN error:",
         error
       );
 
-      addMessage(
+
+      const errorText =
         "❌ حدث خطأ في الاتصال بـ NORYN AI.\n\n" +
         (
           error.message ||
           "خطأ غير معروف"
-        ),
+        );
+
+
+      const messageObject = {
+
+        type:
+          "ai",
+
+        text:
+          errorText,
+
+        time:
+          Date.now(),
+
+        feedback:
+          null
+      };
+
+
+      addMessage(
+        errorText,
         "ai",
-        true
+        true,
+        messageObject
       );
 
     } finally {
+
       setBusy(false);
 
+
       if (input) {
+
         input.focus();
       }
     }
   }
 
-  /* =========================================================
-     SETUP
-     ========================================================= */
+
+  /* =======================================================
+     Regenerate Response
+  ======================================================= */
+
+  async function regenerateResponse(
+    targetMessage
+  ) {
+
+    if (state.busy)
+      return;
+
+
+    const chat =
+      getCurrentChat();
+
+
+    if (!chat ||
+        !Array.isArray(
+          chat.messages
+        )
+    ) {
+      return;
+    }
+
+
+    const aiIndex =
+      chat.messages.indexOf(
+        targetMessage
+      );
+
+
+    if (aiIndex === -1)
+      return;
+
+
+    /* نبحث عن سؤال المستخدم السابق */
+
+    let userIndex =
+      aiIndex - 1;
+
+
+    while (
+      userIndex >= 0 &&
+      chat.messages[userIndex].type !==
+        "user"
+    ) {
+
+      userIndex--;
+    }
+
+
+    if (userIndex < 0)
+      return;
+
+
+    const userMessage =
+      chat.messages[userIndex];
+
+
+    /* التاريخ قبل السؤال */
+
+    const history =
+      chat.messages
+        .slice(0, userIndex)
+        .filter(message =>
+          (
+            message.type === "user" ||
+            message.type === "ai"
+          )
+        )
+        .map(message => ({
+          type:
+            message.type,
+
+          text:
+            String(
+              message.text
+            )
+        }));
+
+
+    setBusy(true);
+
+
+    const row =
+      findMessageRow(
+        targetMessage
+      );
+
+
+    let oldContent = null;
+
+
+    if (row) {
+
+      oldContent =
+        row.querySelector(
+          ".message-content"
+        );
+
+
+      if (oldContent) {
+
+        oldContent.innerHTML =
+          "⏳ NORYN يعيد التفكير...";
+      }
+
+
+      const actions =
+        row.querySelector(
+          ".message-actions"
+        );
+
+
+      if (actions) {
+
+        actions.remove();
+      }
+    }
+
+
+    try {
+
+      const reply =
+        await requestAI(
+          userMessage.text,
+          history
+        );
+
+
+      targetMessage.text =
+        reply;
+
+
+      targetMessage.time =
+        Date.now();
+
+
+      targetMessage.feedback =
+        null;
+
+
+      chat.updatedAt =
+        Date.now();
+
+
+      saveChats();
+
+
+      if (row) {
+
+        const content =
+          row.querySelector(
+            ".message-content"
+          );
+
+
+        if (content) {
+
+          content.innerHTML =
+            renderMarkdown(
+              reply
+            );
+        }
+
+
+        const oldActions =
+          row.querySelector(
+            ".message-actions"
+          );
+
+
+        if (oldActions) {
+          oldActions.remove();
+        }
+
+
+        row.appendChild(
+          createActions(
+            targetMessage
+          )
+        );
+
+
+        setupCodeButtons(row);
+      }
+
+
+      renderHistory();
+
+
+    } catch (error) {
+
+      console.error(
+        "Regenerate error:",
+        error
+      );
+
+
+      if (row) {
+
+        const content =
+          row.querySelector(
+            ".message-content"
+          );
+
+
+        if (content) {
+
+          content.textContent =
+            "❌ تعذر إعادة الرد.\n\n" +
+            (
+              error.message ||
+              "خطأ غير معروف"
+            );
+        }
+
+
+        row.appendChild(
+          createActions(
+            targetMessage
+          )
+        );
+      }
+
+    } finally {
+
+      setBusy(false);
+    }
+  }
+
+
+  /* =======================================================
+     Find Message Row
+  ======================================================= */
+
+  function findMessageRow(
+    messageObject
+  ) {
+
+    const rows =
+      document.querySelectorAll(
+        "#messages .message-row.ai"
+      );
+
+
+    const chat =
+      getCurrentChat();
+
+
+    if (!chat)
+      return null;
+
+
+    const aiMessages =
+      chat.messages.filter(
+        message =>
+          message.type === "ai"
+      );
+
+
+    const index =
+      aiMessages.indexOf(
+        messageObject
+      );
+
+
+    if (
+      index < 0 ||
+      index >= rows.length
+    ) {
+      return null;
+    }
+
+
+    return rows[index];
+  }
+
+
+  /* =======================================================
+     Code Buttons
+  ======================================================= */
+
+  function setupCodeButtons(
+    root
+  ) {
+
+    root
+      .querySelectorAll(
+        ".code-copy"
+      )
+      .forEach(button => {
+
+        if (
+          button.dataset.ready ===
+          "true"
+        ) {
+          return;
+        }
+
+
+        button.dataset.ready =
+          "true";
+
+
+        button.addEventListener(
+          "click",
+          async () => {
+
+            const code =
+              decodeURIComponent(
+                button.dataset.code ||
+                ""
+              );
+
+
+            const success =
+              await copyText(
+                code
+              );
+
+
+            if (success) {
+
+              button.textContent =
+                "تم النسخ";
+
+
+              setTimeout(() => {
+
+                button.textContent =
+                  "نسخ";
+
+              }, 1500);
+            }
+          }
+        );
+      });
+  }
+
+
+  /* =======================================================
+     Setup
+  ======================================================= */
 
   function setup() {
+
     if (
       window.__NORYN_V45_INITIALIZED__
     ) {
       return;
     }
 
+
     window.__NORYN_V45_INITIALIZED__ =
       true;
 
+
     loadChats();
+
 
     /* Modes */
 
@@ -1340,46 +1840,54 @@
       .querySelectorAll(
         "[data-mode]"
       )
-      .forEach(
-        button => {
-          button.addEventListener(
-            "click",
-            () => {
-              setMode(
-                button.dataset.mode ||
-                "general"
-              );
-            }
-          );
-        }
-      );
+      .forEach(button => {
+
+        button.addEventListener(
+          "click",
+          () => {
+
+            setMode(
+              button.dataset.mode ||
+              "general"
+            );
+          }
+        );
+      });
+
 
     /* Send */
 
     const send =
       $("#send");
 
+
     if (send) {
+
       send.addEventListener(
         "click",
         sendMessage
       );
     }
 
+
     /* Textarea */
 
     const input =
       $("#message");
 
+
     if (input) {
+
       input.addEventListener(
         "keydown",
         event => {
+
           if (
             event.key ===
               "Enter" &&
             !event.shiftKey
           ) {
+
             event.preventDefault();
 
             sendMessage();
@@ -1388,15 +1896,19 @@
       );
     }
 
+
     /* New Chat */
 
     const newChat =
       $("#newChat");
 
+
     if (newChat) {
+
       newChat.addEventListener(
         "click",
         event => {
+
           event.preventDefault();
           event.stopPropagation();
 
@@ -1405,15 +1917,19 @@
       );
     }
 
+
     /* History */
 
     const historyButton =
       $("#historyButton");
 
+
     if (historyButton) {
+
       historyButton.addEventListener(
         "click",
         event => {
+
           event.preventDefault();
           event.stopPropagation();
 
@@ -1422,15 +1938,19 @@
       );
     }
 
-    /* Close History */
+
+    /* Close */
 
     const closeButton =
       $("#closeHistory");
 
+
     if (closeButton) {
+
       closeButton.addEventListener(
         "click",
         event => {
+
           event.preventDefault();
 
           closeHistory();
@@ -1438,15 +1958,19 @@
       );
     }
 
-    /* New Chat inside panel */
+
+    /* New Chat in panel */
 
     const panelNewChat =
       $("#panelNewChat");
 
+
     if (panelNewChat) {
+
       panelNewChat.addEventListener(
         "click",
         event => {
+
           event.preventDefault();
 
           createNewChat();
@@ -1454,24 +1978,30 @@
       );
     }
 
-    /* Click outside */
+
+    /* Click outside panel */
 
     const panel =
       $("#chatPanel");
 
+
     if (panel) {
+
       panel.addEventListener(
         "click",
         event => {
+
           if (
             event.target ===
             panel
           ) {
+
             closeHistory();
           }
         }
       );
     }
+
 
     /* Suggestions */
 
@@ -1479,32 +2009,37 @@
       .querySelectorAll(
         ".suggestion"
       )
-      .forEach(
-        button => {
-          button.addEventListener(
-            "click",
-            () => {
-              const inputBox =
-                $("#message");
+      .forEach(button => {
 
-              if (!inputBox)
-                return;
+        button.addEventListener(
+          "click",
+          () => {
 
-              inputBox.value =
-                button.dataset.prompt ||
-                button.textContent.trim();
+            const inputBox =
+              $("#message");
 
-              inputBox.focus();
-            }
-          );
-        }
-      );
 
-    /* Restore latest */
+            if (!inputBox)
+              return;
+
+
+            inputBox.value =
+              button.dataset.prompt ||
+              button.textContent.trim();
+
+
+            inputBox.focus();
+          }
+        );
+      });
+
+
+    /* Restore latest chat */
 
     if (
       state.chats.length > 0
     ) {
+
       const latest =
         state.chats
           .slice()
@@ -1514,33 +2049,40 @@
               a.updatedAt
           )[0];
 
+
       state.currentChatId =
         latest.id;
+
 
       setMode(
         latest.mode ||
         "general"
       );
 
+
       renderChat(
         latest
       );
 
     } else {
+
       createNewChat();
     }
+
 
     renderHistory();
   }
 
-  /* =========================================================
-     INITIALIZATION
-     ========================================================= */
+
+  /* =======================================================
+     Initialization
+  ======================================================= */
 
   if (
     document.readyState ===
     "loading"
   ) {
+
     document.addEventListener(
       "DOMContentLoaded",
       setup,
@@ -1548,7 +2090,9 @@
         once: true
       }
     );
+
   } else {
+
     setup();
   }
 
