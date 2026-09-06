@@ -6,9 +6,21 @@ from huggingface_hub import InferenceClient
 
 
 # =========================================================
-# NORYN AI v4.2
-# Flask + Hugging Face InferenceClient
+# NORYN AI v4.3
+# Backend: Flask + Hugging Face InferenceClient
+#
+# Features:
+# - General AI
+# - Programming mode
+# - Learning mode
+# - Writing mode
+# - Conversation memory
+# - Long code generation
+# - Mobile-friendly projects
+# - Error handling
+# - Health endpoint
 # =========================================================
+
 
 app = Flask(__name__)
 
@@ -24,24 +36,35 @@ MODEL = os.environ.get(
     "deepseek-ai/DeepSeek-V3-0324"
 ).strip()
 
-try:
-    MAX_TOKENS = int(
-        os.environ.get("HF_MAX_TOKENS", "8192")
-    )
-except ValueError:
-    MAX_TOKENS = 8192
+MAX_TOKENS = int(
+    os.environ.get("HF_MAX_TOKENS", "8192")
+)
 
-try:
-    TEMPERATURE = float(
-        os.environ.get("HF_TEMPERATURE", "0.7")
-    )
-except ValueError:
-    TEMPERATURE = 0.7
+TEMPERATURE = float(
+    os.environ.get("HF_TEMPERATURE", "0.7")
+)
 
+# عدد رسائل المحادثة التي نسمح بإرسالها للنموذج
+# لتجنب تضخم الطلبات مع المحادثات الطويلة.
+MAX_HISTORY_MESSAGES = int(
+    os.environ.get("HF_MAX_HISTORY", "20")
+)
 
-# حماية القيم
-MAX_TOKENS = max(256, min(MAX_TOKENS, 16384))
-TEMPERATURE = max(0.0, min(TEMPERATURE, 2.0))
+# حماية من القيم غير المناسبة
+MAX_TOKENS = max(
+    256,
+    min(MAX_TOKENS, 16384)
+)
+
+TEMPERATURE = max(
+    0.0,
+    min(TEMPERATURE, 2.0)
+)
+
+MAX_HISTORY_MESSAGES = max(
+    2,
+    min(MAX_HISTORY_MESSAGES, 50)
+)
 
 
 # =========================================================
@@ -55,7 +78,7 @@ client = InferenceClient(
 
 
 # =========================================================
-# NORYN AI Modes
+# NORYN AI Personalities
 # =========================================================
 
 PROMPTS = {
@@ -75,53 +98,53 @@ PROMPTS = {
 القواعد:
 - أجب باللغة العربية عندما يكتب المستخدم بالعربية.
 - إذا استخدم المستخدم لغة أخرى، يمكنك الإجابة بلغته.
+- كن واضحًا ومفيدًا.
 - لا تكن مطولًا بلا سبب.
-- إذا كان السؤال يحتاج شرحًا، استخدم عناوين ونقاط.
+- إذا كان السؤال يحتاج شرحًا، استخدم العناوين والنقاط والأمثلة.
 - لا تدّعي أنك نفذت شيئًا لم تنفذه.
-- إذا لم تكن متأكدًا من معلومة، وضح ذلك.
+- إذا لم تكن متأكدًا من معلومة، وضّح ذلك.
+- حافظ على سياق المحادثة السابقة.
+- إذا قال المستخدم "هذا" أو "السابق" أو "الكود السابق"، حاول فهم المقصود من الرسائل السابقة.
 """,
 
     "code": """
 أنت NORYN AI، مساعد برمجة احترافي.
 
-تخصصك:
-- HTML5
-- CSS3
-- JavaScript
-- Python
-- Flask
-- واجهات الويب
-- الألعاب باستخدام Canvas
-- تصحيح الأخطاء
-- تحسين الأكواد
-- شرح الأكواد
-- تصميم المشاريع
+أنت متخصص في:
+HTML5
+CSS3
+JavaScript
+Python
+Flask
+واجهات الويب
+الألعاب باستخدام Canvas
+تصحيح الأخطاء
+تحسين الأكواد
+شرح الأكواد
+تصميم المشاريع
 
 عند طلب إنشاء كود:
 
-1. افهم المطلوب بدقة.
+1. افهم المطلوب أولًا.
 2. أعطِ كودًا كاملًا وقابلًا للتشغيل قدر الإمكان.
-3. لا تقطع الكود.
-4. لا تستخدم:
-   "أكمل الكود هنا"
-   أو
-   "..."
-   بدل أجزاء الكود المطلوبة.
-5. إذا طلب المستخدم ملف HTML واحدًا، ضع HTML وCSS وJavaScript داخله.
-6. إذا طلب لعبة HTML، اجعلها قابلة للتشغيل مباشرة في المتصفح.
-7. اجعل التصميم Mobile First إذا لم يحدد المستخدم غير ذلك.
-8. استخدم JavaScript عاديًا بدون React أو Vue أو Angular ما لم يطلب المستخدم ذلك.
-9. استخدم code fences صحيحة.
-10. بعد الكود، قدم شرحًا مختصرًا لطريقة التشغيل.
-11. لا تضع شرحًا طويلًا داخل كتلة الكود.
-12. راجع الأقواس والدوال والوسوم قبل إنهاء الإجابة.
-13. عندما تنشئ لعبة، اجعل نقطة البداية والأزرار والتحكم واضحة.
-14. إذا كان المطلوب ملفًا واحدًا، لا تقسمه إلى ملفات متعددة.
-15. الأولوية للكود الكامل والصحيح، وليس للشرح الطويل.
+3. لا تقطع الكود في منتصفه.
+4. لا تستخدم "..." بدل أجزاء مطلوبة.
+5. إذا طلب المستخدم ملف HTML واحدًا، ضع HTML وCSS وJavaScript في ملف واحد.
+6. إذا كان المشروع لعبة HTML، اجعلها قابلة للتشغيل مباشرة في المتصفح.
+7. اجعل التصميم مناسبًا للهاتف إذا لم يحدد المستخدم غير ذلك.
+8. استخدم JavaScript عاديًا بدون React أو Vue أو Angular إذا لم يطلب المستخدم مكتبة معينة.
+9. استخدم code fences المناسبة.
+10. بعد الكود، اشرح طريقة التشغيل باختصار.
+11. إذا كان الكود طويلًا، قلّل الشرح بدل حذف أجزاء من الكود.
+12. لا تضع شرحًا طويلًا داخل كتلة الكود.
+13. راجع الأقواس والوسوم والدوال قبل إنهاء الإجابة.
+14. عند إنشاء لعبة، تأكد من وجود نقطة بداية واضحة للعبة.
+15. أضف التحكم باللمس على الهاتف عندما يكون مناسبًا.
+16. إذا طلب المستخدم تعديل كود سابق، حافظ على الأجزاء التي لا تحتاج إلى تغيير.
+17. إذا كان المستخدم يشير إلى "الكود السابق"، استخدم سياق المحادثة السابقة لفهم الكود المقصود.
 
-مهم جدًا:
-إذا كان الكود طويلًا، قلّل الشرح أولًا وحافظ على الكود.
-لا تتوقف في منتصف HTML أو CSS أو JavaScript.
+الأولوية:
+الكود الكامل والصحيح أهم من الشرح الطويل.
 """,
 
     "learn": """
@@ -134,10 +157,22 @@ PROMPTS = {
 - إعطاء أمثلة عند الحاجة.
 - عدم افتراض أن المستخدم خبير.
 - استخدام أمثلة عملية.
+- طرح أسئلة قصيرة للتأكد من الفهم عند الحاجة.
 - استخدام العربية الواضحة عندما يكون السؤال بالعربية.
+
+عند شرح درس دراسي:
+1. ابدأ بتعريف بسيط.
+2. اشرح القاعدة.
+3. أعط أمثلة صحيحة.
+4. وضح الأخطاء الشائعة.
+5. أعط تمرينًا قصيرًا.
+6. إذا أجاب المستخدم، صحح إجابته وفسر الخطأ.
+7. لا تنتقل لموضوع جديد إذا كان المستخدم ما زال يسأل عن الموضوع الحالي.
 
 إذا كان الموضوع صعبًا:
 ابدأ بالفكرة الأساسية ثم انتقل إلى التفاصيل.
+
+حافظ على سياق الدرس والمحادثة السابقة.
 """,
 
     "write": """
@@ -157,6 +192,9 @@ PROMPTS = {
 
 إذا طلب المستخدم نصًا جاهزًا:
 أعطه النص مباشرة دون شرح زائد.
+
+إذا طلب تعديل نص سابق:
+اعتمد على النص الموجود في سياق المحادثة.
 """
 }
 
@@ -166,7 +204,9 @@ PROMPTS = {
 # =========================================================
 
 def clean_text(value, default=""):
-    """تحويل القيمة إلى نص آمن."""
+    """
+    تحويل أي قيمة إلى نص آمن.
+    """
     if value is None:
         return default
 
@@ -174,8 +214,14 @@ def clean_text(value, default=""):
 
 
 def get_mode_prompt(mode):
-    """الحصول على System Prompt المناسب."""
-    mode = clean_text(mode, "general").lower()
+    """
+    إرجاع Prompt مناسب للوضع.
+    """
+
+    mode = clean_text(
+        mode,
+        "general"
+    ).lower()
 
     return PROMPTS.get(
         mode,
@@ -183,41 +229,10 @@ def get_mode_prompt(mode):
     )
 
 
-def is_code_request(message):
-    """اكتشاف طلبات البرمجة والأكواد."""
-
-    keywords = [
-        "اكتب كود",
-        "أنشئ كود",
-        "اصنع كود",
-        "كود كامل",
-        "أنشئ لعبة",
-        "اصنع لعبة",
-        "اكتب لعبة",
-        "لعبة html",
-        "ملف html",
-        "html",
-        "css",
-        "javascript",
-        "javascript",
-        "python",
-        "flask",
-        "canvas",
-        "برمج",
-        "برمجة",
-        "كود"
-    ]
-
-    text = message.lower()
-
-    return any(
-        keyword.lower() in text
-        for keyword in keywords
-    )
-
-
 def extract_reply(response):
-    """استخراج نص الإجابة من Hugging Face."""
+    """
+    استخراج نص الإجابة من Hugging Face.
+    """
 
     if not response:
         return ""
@@ -258,30 +273,175 @@ def extract_reply(response):
         return ""
 
 
+def normalize_history(history):
+    """
+    تنظيف سجل المحادثة القادم من app.js.
+
+    الشكل المتوقع:
+
+    [
+        {
+            "type": "user",
+            "text": "مرحبا"
+        },
+        {
+            "type": "ai",
+            "text": "مرحبا بك"
+        }
+    ]
+    """
+
+    if not isinstance(history, list):
+        return []
+
+    messages = []
+
+    for item in history:
+
+        if not isinstance(item, dict):
+            continue
+
+        message_type = clean_text(
+            item.get("type")
+        ).lower()
+
+        text = clean_text(
+            item.get("text")
+        )
+
+        if not text:
+            continue
+
+        if message_type == "user":
+
+            messages.append({
+                "role": "user",
+                "content": text
+            })
+
+        elif message_type == "ai":
+
+            messages.append({
+                "role": "assistant",
+                "content": text
+            })
+
+    return messages
+
+
+def detect_code_request(message):
+    """
+    اكتشاف طلبات البرمجة والكود.
+    """
+
+    keywords = [
+        "اكتب كود",
+        "أنشئ كود",
+        "اصنع كود",
+        "اكتب لي كود",
+        "أنشئ لعبة",
+        "اصنع لعبة",
+        "لعبة html",
+        "html",
+        "css",
+        "javascript",
+        "java script",
+        "python",
+        "flask",
+        "برمج",
+        "برمجة",
+        "كود كامل",
+        "ملف html",
+        "ملف واحد",
+        "صفحة ويب",
+        "موقع",
+        "تطبيق ويب",
+        "canvas"
+    ]
+
+    text = message.lower()
+
+    return any(
+        keyword.lower() in text
+        for keyword in keywords
+    )
+
+
+def build_messages(
+    system_prompt,
+    history,
+    current_message
+):
+    """
+    إنشاء messages المتوافقة مع Chat Completion.
+    """
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt
+        }
+    ]
+
+    cleaned_history = normalize_history(
+        history
+    )
+
+    # نأخذ آخر جزء من المحادثة
+    if cleaned_history:
+
+        cleaned_history = cleaned_history[
+            -MAX_HISTORY_MESSAGES:
+        ]
+
+        messages.extend(
+            cleaned_history
+        )
+
+    # الرسالة الحالية
+    messages.append({
+        "role": "user",
+        "content": current_message
+    })
+
+    return messages
+
+
 # =========================================================
-# Home
+# Main Page
 # =========================================================
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+
+    return render_template(
+        "index.html"
+    )
 
 
 # =========================================================
-# Health Check
+# Health
 # =========================================================
 
 @app.route("/health")
 def health():
 
     return jsonify({
+
         "ok": True,
+
         "ai": bool(HF_TOKEN),
+
         "model": MODEL,
+
         "service": "NORYN AI",
-        "version": "4.2",
+
+        "version": "4.3",
+
         "max_tokens": MAX_TOKENS,
-        "temperature": TEMPERATURE
+
+        "max_history": MAX_HISTORY_MESSAGES
+
     })
 
 
@@ -289,7 +449,10 @@ def health():
 # Chat API
 # =========================================================
 
-@app.route("/api/chat", methods=["POST"])
+@app.route(
+    "/api/chat",
+    methods=["POST"]
+)
 def chat():
 
     # -----------------------------------------------------
@@ -309,6 +472,11 @@ def chat():
         "general"
     ).lower()
 
+    history = data.get(
+        "history",
+        []
+    )
+
 
     # -----------------------------------------------------
     # Validate message
@@ -317,8 +485,11 @@ def chat():
     if not message:
 
         return jsonify({
+
             "ok": False,
+
             "error": "اكتب رسالة أولًا."
+
         }), 400
 
 
@@ -329,65 +500,81 @@ def chat():
     if not HF_TOKEN:
 
         return jsonify({
+
             "ok": False,
-            "error": "HF_TOKEN غير موجود في إعدادات Render."
+
+            "error":
+                "HF_TOKEN غير موجود في إعدادات Render."
+
         }), 500
 
 
     # -----------------------------------------------------
-    # Input limit
+    # Limit input
     # -----------------------------------------------------
 
     if len(message) > 30000:
 
         return jsonify({
+
             "ok": False,
-            "error": "الرسالة طويلة جدًا. حاول تقليل حجمها."
+
+            "error":
+                "الرسالة طويلة جدًا. حاول تقليل حجمها."
+
         }), 413
 
 
     # -----------------------------------------------------
-    # System Prompt
+    # System prompt
     # -----------------------------------------------------
 
-    system_prompt = get_mode_prompt(mode)
+    system_prompt = get_mode_prompt(
+        mode
+    )
 
 
     # -----------------------------------------------------
-    # Code Request Enhancement
+    # Extra instructions for code
     # -----------------------------------------------------
 
-    if is_code_request(message):
+    if detect_code_request(
+        message
+    ):
 
         system_prompt += """
 
 هذه الرسالة مرتبطة بالبرمجة أو إنشاء مشروع.
 
-قبل إرسال الإجابة النهائية:
+قبل إنهاء الإجابة:
 
-- تأكد من اكتمال الكود.
-- لا تتوقف في منتصف الكود.
+- تأكد من أن الكود غير مقطوع.
 - أغلق جميع HTML tags.
 - أغلق جميع الأقواس { }.
 - أغلق جميع الأقواس ( ).
-- أغلق جميع الأقواس [ ].
+- أغلق جميع الأقواس المربعة [ ].
 - أكمل جميع الدوال.
-- أكمل جميع المتغيرات المطلوبة.
-- لا تستبدل الكود بـ "...".
-- لا تقل "أكمل الباقي بنفس الطريقة".
-- إذا كان المطلوب ملف HTML واحدًا، أعطِ ملف HTML واحدًا كاملًا.
-- اجعل JavaScript داخل <script>.
-- اجعل CSS داخل <style> إذا كان المطلوب ملفًا واحدًا.
-- تأكد أن اللعبة أو التطبيق يبدأ بطريقة واضحة.
-- اجعل أزرار الهاتف والتحكم باللمس موجودة عندما يكون ذلك مناسبًا.
-
-الأولوية القصوى:
-إرسال الكود الكامل قبل الشرح.
+- لا تتوقف في منتصف JavaScript.
+- إذا كان المطلوب ملفًا واحدًا، أعطِ ملفًا واحدًا كاملًا.
+- لا تستبدل أجزاء الكود بعبارة "...".
+- اجعل الكود قابلًا للنسخ والتشغيل.
+- إذا كان المشروع لعبة، تأكد من أن اللعبة تحتوي على بداية واضحة.
 """
 
 
     # -----------------------------------------------------
-    # Request Hugging Face
+    # Build conversation
+    # -----------------------------------------------------
+
+    messages = build_messages(
+        system_prompt,
+        history,
+        message
+    )
+
+
+    # -----------------------------------------------------
+    # Request to Hugging Face
     # -----------------------------------------------------
 
     try:
@@ -396,31 +583,27 @@ def chat():
 
             model=MODEL,
 
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ],
+            messages=messages,
 
             max_tokens=MAX_TOKENS,
 
-            temperature=TEMPERATURE,
+            temperature=TEMPERATURE
 
-            top_p=0.95
         )
 
 
         # -------------------------------------------------
-        # Extract Reply
+        # Extract response
         # -------------------------------------------------
 
-        reply = extract_reply(response)
+        reply = extract_reply(
+            response
+        )
 
+
+        # -------------------------------------------------
+        # Empty response
+        # -------------------------------------------------
 
         if not reply:
 
@@ -430,8 +613,12 @@ def chat():
             )
 
             return jsonify({
+
                 "ok": False,
-                "error": "النموذج لم يُرجع إجابة."
+
+                "error":
+                    "النموذج لم يُرجع إجابة."
+
             }), 502
 
 
@@ -449,13 +636,13 @@ def chat():
 
             "mode": mode,
 
-            "version": "4.2"
+            "version": "4.3"
 
         })
 
 
     # -----------------------------------------------------
-    # Error
+    # Errors
     # -----------------------------------------------------
 
     except Exception as error:
@@ -477,7 +664,6 @@ def chat():
             flush=True
         )
 
-
         return jsonify({
 
             "ok": False,
@@ -490,7 +676,7 @@ def chat():
 
 
 # =========================================================
-# 404
+# Error Handlers
 # =========================================================
 
 @app.errorhandler(404)
@@ -500,14 +686,11 @@ def not_found(error):
 
         "ok": False,
 
-        "error": "المسار غير موجود."
+        "error":
+            "المسار غير موجود."
 
     }), 404
 
-
-# =========================================================
-# 405
-# =========================================================
 
 @app.errorhandler(405)
 def method_not_allowed(error):
@@ -516,14 +699,11 @@ def method_not_allowed(error):
 
         "ok": False,
 
-        "error": "طريقة الطلب غير مسموحة."
+        "error":
+            "طريقة الطلب غير مسموحة."
 
     }), 405
 
-
-# =========================================================
-# 500
-# =========================================================
 
 @app.errorhandler(500)
 def internal_error(error):
@@ -538,29 +718,31 @@ def internal_error(error):
 
         "ok": False,
 
-        "error": "حدث خطأ داخلي في الخادم."
+        "error":
+            "حدث خطأ داخلي في الخادم."
 
     }), 500
 
 
 # =========================================================
-# Local / Render
+# Local Development
 # =========================================================
 
 if __name__ == "__main__":
 
-    try:
-        port = int(
-            os.environ.get(
-                "PORT",
-                "8000"
-            )
+    port = int(
+        os.environ.get(
+            "PORT",
+            "8000"
         )
-    except ValueError:
-        port = 8000
+    )
 
     app.run(
+
         host="0.0.0.0",
+
         port=port,
+
         debug=False
+
     )
