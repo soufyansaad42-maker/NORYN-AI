@@ -1,23 +1,25 @@
 /* =========================================================
-   NORYN AI v4.4
-   Stable Chat + Conversation Memory
+   NORYN AI v4.5
+   Stable Chat + Memory + Markdown Renderer
 
    Features:
+   - Conversation memory
    - Chat history
    - LocalStorage
-   - Conversation memory
-   - General / Code / Learn / Write modes
+   - General / Code / Learn / Write
+   - Markdown rendering
+   - Code blocks
+   - Copy code button
    - New chat
    - Delete chat
    - Suggestions
    - Backend /api/chat
-   - Sends conversation history to backend
    ========================================================= */
 
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "noryn_ai_chats_v44";
+  const STORAGE_KEY = "noryn_ai_chats_v45";
 
   const state = {
     mode: "general",
@@ -26,13 +28,11 @@
     chats: []
   };
 
-
-  /* =======================================================
-     Mode Prompts
-     ======================================================= */
+  /* =========================================================
+     MODE PROMPTS
+     ========================================================= */
 
   const MODE_PROMPTS = {
-
     general:
       "أنت NORYN AI، مساعد ذكي عام. أجب بوضوح وبالعربية عندما يكون السؤال بالعربية.",
 
@@ -46,15 +46,13 @@
       "أنت NORYN AI، مساعد للكتابة. ساعد في القصص والأفكار والتلخيص وإعادة الصياغة."
   };
 
-
-  /* =======================================================
-     Helpers
-     ======================================================= */
+  /* =========================================================
+     HELPERS
+     ========================================================= */
 
   function $(selector) {
     return document.querySelector(selector);
   }
-
 
   function createId() {
     return (
@@ -65,17 +63,418 @@
     );
   }
 
+  function escapeText(text) {
+    return String(text ?? "");
+  }
 
-  /* =======================================================
-     Load / Save Chats
-     ======================================================= */
+  /* =========================================================
+     MARKDOWN RENDERER
+     ========================================================= */
+
+  function renderMarkdown(container, text) {
+    container.replaceChildren();
+
+    const source = escapeText(text);
+    const lines = source.split(/\r?\n/);
+
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      /* -----------------------------------------------------
+         Code block
+         ----------------------------------------------------- */
+
+      const fenceMatch = line.match(/^```([a-zA-Z0-9_+-]*)\s*$/);
+
+      if (fenceMatch) {
+        const language =
+          fenceMatch[1] || "code";
+
+        const codeLines = [];
+
+        i++;
+
+        while (
+          i < lines.length &&
+          !/^```\s*$/.test(lines[i])
+        ) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+
+        if (i < lines.length) {
+          i++;
+        }
+
+        createCodeBlock(
+          container,
+          codeLines.join("\n"),
+          language
+        );
+
+        continue;
+      }
+
+      /* -----------------------------------------------------
+         Empty line
+         ----------------------------------------------------- */
+
+      if (!line.trim()) {
+        const spacer = document.createElement("div");
+        spacer.className = "md-spacer";
+        container.appendChild(spacer);
+
+        i++;
+        continue;
+      }
+
+      /* -----------------------------------------------------
+         Heading
+         ----------------------------------------------------- */
+
+      const headingMatch =
+        line.match(/^(#{1,6})\s+(.+)$/);
+
+      if (headingMatch) {
+        const level = Math.min(
+          headingMatch[1].length,
+          6
+        );
+
+        const heading =
+          document.createElement("h" + level);
+
+        appendInlineContent(
+          heading,
+          headingMatch[2]
+        );
+
+        container.appendChild(heading);
+
+        i++;
+        continue;
+      }
+
+      /* -----------------------------------------------------
+         Bullet list
+         ----------------------------------------------------- */
+
+      if (/^\s*[-*+]\s+/.test(line)) {
+        const list =
+          document.createElement("ul");
+
+        while (
+          i < lines.length &&
+          /^\s*[-*+]\s+/.test(lines[i])
+        ) {
+          const item =
+            document.createElement("li");
+
+          const content =
+            lines[i].replace(
+              /^\s*[-*+]\s+/,
+              ""
+            );
+
+          appendInlineContent(
+            item,
+            content
+          );
+
+          list.appendChild(item);
+          i++;
+        }
+
+        container.appendChild(list);
+        continue;
+      }
+
+      /* -----------------------------------------------------
+         Numbered list
+         ----------------------------------------------------- */
+
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const list =
+          document.createElement("ol");
+
+        while (
+          i < lines.length &&
+          /^\s*\d+\.\s+/.test(lines[i])
+        ) {
+          const item =
+            document.createElement("li");
+
+          const content =
+            lines[i].replace(
+              /^\s*\d+\.\s+/,
+              ""
+            );
+
+          appendInlineContent(
+            item,
+            content
+          );
+
+          list.appendChild(item);
+          i++;
+        }
+
+        container.appendChild(list);
+        continue;
+      }
+
+      /* -----------------------------------------------------
+         Blockquote
+         ----------------------------------------------------- */
+
+      if (/^\s*>\s?/.test(line)) {
+        const quote =
+          document.createElement("blockquote");
+
+        while (
+          i < lines.length &&
+          /^\s*>\s?/.test(lines[i])
+        ) {
+          const content =
+            lines[i].replace(
+              /^\s*>\s?/,
+              ""
+            );
+
+          const paragraph =
+            document.createElement("div");
+
+          appendInlineContent(
+            paragraph,
+            content
+          );
+
+          quote.appendChild(paragraph);
+          i++;
+        }
+
+        container.appendChild(quote);
+        continue;
+      }
+
+      /* -----------------------------------------------------
+         Normal paragraph
+         ----------------------------------------------------- */
+
+      const paragraph =
+        document.createElement("p");
+
+      appendInlineContent(
+        paragraph,
+        line
+      );
+
+      container.appendChild(paragraph);
+
+      i++;
+    }
+  }
+
+  /* =========================================================
+     INLINE MARKDOWN
+     ========================================================= */
+
+  function appendInlineContent(parent, text) {
+    const value = String(text ?? "");
+
+    const tokenRegex =
+      /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))/g;
+
+    let lastIndex = 0;
+    let match;
+
+    while (
+      (match = tokenRegex.exec(value)) !== null
+    ) {
+      if (match.index > lastIndex) {
+        parent.appendChild(
+          document.createTextNode(
+            value.slice(
+              lastIndex,
+              match.index
+            )
+          )
+        );
+      }
+
+      const token = match[0];
+
+      /* Bold */
+
+      if (
+        token.startsWith("**") ||
+        token.startsWith("__")
+      ) {
+        const strong =
+          document.createElement("strong");
+
+        strong.textContent =
+          token.slice(2, -2);
+
+        parent.appendChild(strong);
+      }
+
+      /* Inline code */
+
+      else if (
+        token.startsWith("`")
+      ) {
+        const code =
+          document.createElement("code");
+
+        code.textContent =
+          token.slice(1, -1);
+
+        parent.appendChild(code);
+      }
+
+      /* Link */
+
+      else if (
+        token.startsWith("[")
+      ) {
+        const label =
+          match[2];
+
+        const url =
+          match[3];
+
+        const link =
+          document.createElement("a");
+
+        link.textContent = label;
+        link.href = url;
+        link.target = "_blank";
+        link.rel =
+          "noopener noreferrer";
+
+        parent.appendChild(link);
+      }
+
+      lastIndex =
+        tokenRegex.lastIndex;
+    }
+
+    if (lastIndex < value.length) {
+      parent.appendChild(
+        document.createTextNode(
+          value.slice(lastIndex)
+        )
+      );
+    }
+  }
+
+  /* =========================================================
+     CODE BLOCK
+     ========================================================= */
+
+  function createCodeBlock(
+    container,
+    code,
+    language
+  ) {
+    const wrapper =
+      document.createElement("div");
+
+    wrapper.className =
+      "code-block";
+
+    const header =
+      document.createElement("div");
+
+    header.className =
+      "code-header";
+
+    const lang =
+      document.createElement("span");
+
+    lang.className =
+      "code-language";
+
+    lang.textContent =
+      language.toUpperCase();
+
+    const copy =
+      document.createElement("button");
+
+    copy.type = "button";
+    copy.className =
+      "copy-code";
+
+    copy.textContent =
+      "📋 نسخ";
+
+    copy.addEventListener(
+      "click",
+      async () => {
+        try {
+          await navigator.clipboard.writeText(
+            code
+          );
+
+          copy.textContent =
+            "✓ تم النسخ";
+
+          setTimeout(() => {
+            copy.textContent =
+              "📋 نسخ";
+          }, 1600);
+
+        } catch (error) {
+          console.error(
+            "Copy error:",
+            error
+          );
+
+          copy.textContent =
+            "تعذر النسخ";
+        }
+      }
+    );
+
+    header.appendChild(lang);
+    header.appendChild(copy);
+
+    const pre =
+      document.createElement("pre");
+
+    const codeElement =
+      document.createElement("code");
+
+    codeElement.className =
+      "language-" +
+      language.toLowerCase();
+
+    codeElement.textContent =
+      code;
+
+    pre.appendChild(
+      codeElement
+    );
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(pre);
+
+    container.appendChild(wrapper);
+  }
+
+  /* =========================================================
+     LOAD / SAVE
+     ========================================================= */
 
   function loadChats() {
-
     try {
-
       const raw =
-        localStorage.getItem(STORAGE_KEY);
+        localStorage.getItem(
+          STORAGE_KEY
+        );
 
       const parsed =
         raw ? JSON.parse(raw) : [];
@@ -86,7 +485,6 @@
           : [];
 
     } catch (error) {
-
       console.error(
         "NORYN load error:",
         error
@@ -96,18 +494,14 @@
     }
   }
 
-
   function saveChats() {
-
     try {
-
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify(state.chats)
       );
 
     } catch (error) {
-
       console.error(
         "NORYN save error:",
         error
@@ -115,13 +509,11 @@
     }
   }
 
-
-  /* =======================================================
-     Current Chat
-     ======================================================= */
+  /* =========================================================
+     CURRENT CHAT
+     ========================================================= */
 
   function getCurrentChat() {
-
     return (
       state.chats.find(
         chat =>
@@ -131,19 +523,17 @@
     );
   }
 
-
-  /* =======================================================
-     Clear Messages
-     ======================================================= */
+  /* =========================================================
+     CLEAR
+     ========================================================= */
 
   function clearMessages() {
-
     const messages =
       $("#messages");
 
     if (!messages) return;
 
-    messages.innerHTML = "";
+    messages.replaceChildren();
 
     const welcome =
       document.createElement("div");
@@ -151,26 +541,40 @@
     welcome.className =
       "message ai";
 
-    welcome.innerHTML =
-      "مرحبًا! أنا NORYN AI 🤖<br>" +
+    const welcomeText =
+      document.createElement("div");
+
+    welcomeText.textContent =
+      "مرحبًا! أنا NORYN AI 🤖";
+
+    const welcomeSub =
+      document.createElement("div");
+
+    welcomeSub.textContent =
       "كيف يمكنني مساعدتك؟";
+
+    welcome.appendChild(
+      welcomeText
+    );
+
+    welcome.appendChild(
+      welcomeSub
+    );
 
     messages.appendChild(
       welcome
     );
   }
 
-
-  /* =======================================================
-     Add Message
-     ======================================================= */
+  /* =========================================================
+     ADD MESSAGE
+     ========================================================= */
 
   function addMessage(
     text,
     type,
     save = true
   ) {
-
     const messages =
       $("#messages");
 
@@ -182,16 +586,25 @@
     item.className =
       "message " + type;
 
-    item.textContent =
-      String(text);
+    /*
+      إجابات AI تمر عبر Markdown renderer.
+      رسائل المستخدم تبقى نصًا عاديًا.
+    */
 
-    messages.appendChild(
-      item
-    );
+    if (type === "ai") {
+      renderMarkdown(
+        item,
+        String(text)
+      );
+    } else {
+      item.textContent =
+        String(text);
+    }
+
+    messages.appendChild(item);
 
     messages.scrollTop =
       messages.scrollHeight;
-
 
     if (
       save &&
@@ -200,35 +613,26 @@
         type === "ai"
       )
     ) {
-
       const chat =
         getCurrentChat();
 
       if (chat) {
-
         if (
           !Array.isArray(
             chat.messages
           )
         ) {
-
           chat.messages = [];
         }
 
         chat.messages.push({
-
           type: type,
-
           text: String(text),
-
           time: Date.now()
         });
 
         chat.updatedAt =
           Date.now();
-
-
-        /* إنشاء عنوان تلقائي */
 
         if (
           type === "user" &&
@@ -238,38 +642,31 @@
               "محادثة جديدة"
           )
         ) {
-
           chat.title =
             String(text)
               .replace(/\s+/g, " ")
               .slice(0, 45);
         }
 
-
         saveChats();
-
         renderHistory();
       }
     }
 
-
     return item;
   }
 
-
-  /* =======================================================
-     Render Chat
-     ======================================================= */
+  /* =========================================================
+     RENDER CHAT
+     ========================================================= */
 
   function renderChat(chat) {
-
     const messages =
       $("#messages");
 
     if (!messages) return;
 
-    messages.innerHTML = "";
-
+    messages.replaceChildren();
 
     if (
       !chat ||
@@ -278,16 +675,12 @@
       ) ||
       chat.messages.length === 0
     ) {
-
       clearMessages();
-
       return;
     }
 
-
     chat.messages.forEach(
       message => {
-
         addMessage(
           message.text,
           message.type,
@@ -296,28 +689,23 @@
       }
     );
 
-
     messages.scrollTop =
       messages.scrollHeight;
   }
 
-
-  /* =======================================================
-     Mode
-     ======================================================= */
+  /* =========================================================
+     MODE
+     ========================================================= */
 
   function setMode(mode) {
-
     state.mode =
       mode || "general";
-
 
     document
       .querySelectorAll(
         "[data-mode]"
       )
       .forEach(button => {
-
         button.classList.toggle(
           "active",
           button.dataset.mode ===
@@ -325,15 +713,11 @@
         );
       });
 
-
     const input =
       $("#message");
 
-
     if (input) {
-
       const placeholders = {
-
         general:
           "اسأل NORYN عن أي شيء...",
 
@@ -347,19 +731,17 @@
           "ماذا تريد أن تكتب؟"
       };
 
-
       input.placeholder =
-        placeholders[state.mode] ||
+        placeholders[
+          state.mode
+        ] ||
         "اكتب رسالتك...";
     }
-
 
     const chat =
       getCurrentChat();
 
-
     if (chat) {
-
       chat.mode =
         state.mode;
 
@@ -370,36 +752,21 @@
     }
   }
 
-
-  /* =======================================================
-     New Chat
-     ======================================================= */
+  /* =========================================================
+     NEW CHAT
+     ========================================================= */
 
   function createNewChat() {
-
     if (state.busy) return;
 
-
     const chat = {
-
       id: createId(),
-
-      title:
-        "محادثة جديدة",
-
-      mode:
-        "general",
-
-      createdAt:
-        Date.now(),
-
-      updatedAt:
-        Date.now(),
-
-      messages:
-        []
+      title: "محادثة جديدة",
+      mode: "general",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: []
     };
-
 
     state.chats.unshift(
       chat
@@ -408,10 +775,7 @@
     state.currentChatId =
       chat.id;
 
-
-    setMode(
-      "general"
-    );
+    setMode("general");
 
     clearMessages();
 
@@ -421,85 +785,64 @@
 
     closeHistory();
 
-
     const input =
       $("#message");
 
-
     if (input) {
-
       input.value = "";
-
       input.focus();
     }
   }
 
-
-  /* =======================================================
-     Open Chat
-     ======================================================= */
+  /* =========================================================
+     OPEN CHAT
+     ========================================================= */
 
   function openChat(id) {
-
     const chat =
       state.chats.find(
         item =>
           item.id === id
       );
 
-
     if (!chat) return;
-
 
     state.currentChatId =
       id;
-
 
     setMode(
       chat.mode ||
       "general"
     );
 
-
-    renderChat(
-      chat
-    );
-
+    renderChat(chat);
 
     closeHistory();
-
 
     const input =
       $("#message");
 
-
     if (input) {
-
       input.focus();
     }
   }
 
-
-  /* =======================================================
-     Delete Chat
-     ======================================================= */
+  /* =========================================================
+     DELETE CHAT
+     ========================================================= */
 
   function deleteChat(id) {
-
     const chat =
       state.chats.find(
         item =>
           item.id === id
       );
 
-
     if (!chat) return;
-
 
     const title =
       chat.title ||
       "هذه المحادثة";
-
 
     if (
       !window.confirm(
@@ -508,10 +851,8 @@
         "؟"
       )
     ) {
-
       return;
     }
-
 
     state.chats =
       state.chats.filter(
@@ -519,19 +860,16 @@
           item.id !== id
       );
 
-
     if (
-      state.currentChatId === id
+      state.currentChatId ===
+      id
     ) {
-
       state.currentChatId =
         null;
-
 
       if (
         state.chats.length > 0
       ) {
-
         const next =
           state.chats
             .slice()
@@ -541,51 +879,38 @@
                 a.updatedAt
             )[0];
 
-
         state.currentChatId =
           next.id;
-
 
         setMode(
           next.mode ||
           "general"
         );
 
-
-        renderChat(
-          next
-        );
+        renderChat(next);
 
       } else {
-
         createNewChat();
       }
     }
 
-
     saveChats();
-
     renderHistory();
   }
 
-
-  /* =======================================================
-     History UI
-     ======================================================= */
+  /* =========================================================
+     HISTORY UI
+     ========================================================= */
 
   function renderHistory() {
-
     const list =
       $("#historyList");
 
     if (!list) return;
 
-
-    list.innerHTML = "";
-
+    list.replaceChildren();
 
     if (!state.chats.length) {
-
       const empty =
         document.createElement(
           "div"
@@ -597,13 +922,10 @@
       empty.textContent =
         "لا توجد محادثات محفوظة بعد.";
 
-      list.appendChild(
-        empty
-      );
+      list.appendChild(empty);
 
       return;
     }
-
 
     const sorted =
       state.chats
@@ -614,10 +936,8 @@
             a.updatedAt
         );
 
-
     sorted.forEach(
       chat => {
-
         const row =
           document.createElement(
             "div"
@@ -626,18 +946,15 @@
         row.className =
           "history-item";
 
-
         const open =
           document.createElement(
             "button"
           );
 
-        open.type =
-          "button";
+        open.type = "button";
 
         open.className =
           "history-open";
-
 
         const title =
           document.createElement(
@@ -651,30 +968,21 @@
           chat.title ||
           "محادثة بدون عنوان";
 
-
-        open.appendChild(
-          title
-        );
-
+        open.appendChild(title);
 
         open.addEventListener(
           "click",
           () => {
-
-            openChat(
-              chat.id
-            );
+            openChat(chat.id);
           }
         );
-
 
         const remove =
           document.createElement(
             "button"
           );
 
-        remove.type =
-          "button";
+        remove.type = "button";
 
         remove.className =
           "history-delete";
@@ -687,11 +995,9 @@
           "حذف المحادثة"
         );
 
-
         remove.addEventListener(
           "click",
           event => {
-
             event.stopPropagation();
 
             deleteChat(
@@ -700,38 +1006,25 @@
           }
         );
 
+        row.appendChild(open);
+        row.appendChild(remove);
 
-        row.appendChild(
-          open
-        );
-
-        row.appendChild(
-          remove
-        );
-
-        list.appendChild(
-          row
-        );
+        list.appendChild(row);
       }
     );
   }
 
-
   function openHistory() {
-
     const panel =
       $("#chatPanel");
 
     if (!panel) return;
 
-
     renderHistory();
-
 
     panel.classList.add(
       "open"
     );
-
 
     panel.setAttribute(
       "aria-hidden",
@@ -739,19 +1032,15 @@
     );
   }
 
-
   function closeHistory() {
-
     const panel =
       $("#chatPanel");
 
     if (!panel) return;
 
-
     panel.classList.remove(
       "open"
     );
-
 
     panel.setAttribute(
       "aria-hidden",
@@ -759,16 +1048,13 @@
     );
   }
 
-
-  /* =======================================================
-     Busy
-     ======================================================= */
+  /* =========================================================
+     BUSY
+     ========================================================= */
 
   function setBusy(value) {
-
     state.busy =
       value;
-
 
     const send =
       $("#send");
@@ -776,9 +1062,7 @@
     const input =
       $("#message");
 
-
     if (send) {
-
       send.disabled =
         value;
 
@@ -788,24 +1072,19 @@
           : "إرسال";
     }
 
-
     if (input) {
-
       input.disabled =
         value;
     }
   }
 
-
-  /* =======================================================
-     Build History For Backend
-     ======================================================= */
+  /* =========================================================
+     CONVERSATION HISTORY
+     ========================================================= */
 
   function getConversationHistory() {
-
     const chat =
       getCurrentChat();
-
 
     if (
       !chat ||
@@ -813,20 +1092,12 @@
         chat.messages
       )
     ) {
-
       return [];
     }
-
-
-    /*
-      لا نرسل رسائل الترحيب
-      ولا نرسل رسائل فارغة.
-    */
 
     return chat.messages
       .filter(
         message => {
-
           return (
             (
               message.type ===
@@ -842,7 +1113,6 @@
       )
       .map(
         message => ({
-
           type:
             message.type,
 
@@ -854,52 +1124,40 @@
       );
   }
 
-
-  /* =======================================================
-     Send Message
-     ======================================================= */
+  /* =========================================================
+     SEND MESSAGE
+     ========================================================= */
 
   async function sendMessage() {
-
     if (state.busy)
       return;
-
 
     const input =
       $("#message");
 
-
     if (!input)
       return;
-
 
     const text =
       input.value.trim();
 
-
     if (!text)
       return;
-
-
-    /* إنشاء محادثة إذا لم توجد */
 
     if (
       !state.currentChatId
     ) {
-
       createNewChat();
     }
 
-
     /*
-      نحصل على التاريخ قبل
-      إضافة الرسالة الحالية،
-      حتى لا نرسل الرسالة مرتين.
+      نأخذ الذاكرة قبل إضافة
+      الرسالة الحالية حتى لا
+      نرسلها مرتين.
     */
 
     const history =
       getConversationHistory();
-
 
     addMessage(
       text,
@@ -907,14 +1165,9 @@
       true
     );
 
-
     input.value = "";
 
-
-    setBusy(
-      true
-    );
-
+    setBusy(true);
 
     const loading =
       addMessage(
@@ -923,19 +1176,14 @@
         false
       );
 
-
     try {
-
       const response =
         await fetch(
           "/api/chat",
           {
-
-            method:
-              "POST",
+            method: "POST",
 
             headers: {
-
               "Content-Type":
                 "application/json",
 
@@ -945,7 +1193,6 @@
 
             body:
               JSON.stringify({
-
                 message:
                   text,
 
@@ -963,29 +1210,22 @@
           }
         );
 
-
       const raw =
         await response.text();
-
 
       const contentType =
         response.headers.get(
           "content-type"
         ) || "";
 
-
       if (!response.ok) {
-
         let serverMessage =
           "HTTP " +
           response.status;
 
-
         try {
-
           const errorData =
             JSON.parse(raw);
-
 
           serverMessage =
             errorData.error ||
@@ -994,42 +1234,32 @@
 
         } catch (_) {}
 
-
         throw new Error(
           serverMessage
         );
       }
-
 
       if (
         !contentType.includes(
           "application/json"
         )
       ) {
-
         throw new Error(
           "الخادم أعاد HTML بدل JSON."
         );
       }
 
-
       let data;
 
-
       try {
-
         data =
-          JSON.parse(
-            raw
-          );
+          JSON.parse(raw);
 
       } catch (_) {
-
         throw new Error(
           "الخادم أعاد JSON غير صالح."
         );
       }
-
 
       const reply =
         data.reply ??
@@ -1041,23 +1271,17 @@
         data.output ??
         data.content;
 
-
       if (!reply) {
-
         throw new Error(
-
           data.error ||
           data.detail ||
           "لم نجد نص الإجابة."
         );
       }
 
-
       if (loading) {
-
         loading.remove();
       }
-
 
       addMessage(
         String(reply),
@@ -1065,74 +1289,50 @@
         true
       );
 
-
     } catch (error) {
-
       if (loading) {
-
         loading.remove();
       }
-
 
       console.error(
         "NORYN error:",
         error
       );
 
-
       addMessage(
-
         "❌ حدث خطأ في الاتصال بـ NORYN AI.\n\n" +
         (
           error.message ||
           "خطأ غير معروف"
         ),
-
         "ai",
-
         true
       );
 
-
     } finally {
-
-      setBusy(
-        false
-      );
-
+      setBusy(false);
 
       if (input) {
-
         input.focus();
       }
     }
   }
 
-
-  /* =======================================================
-     Setup
-     ======================================================= */
+  /* =========================================================
+     SETUP
+     ========================================================= */
 
   function setup() {
-
-    /*
-      منع التهيئة المكررة.
-    */
-
     if (
-      window.__NORYN_V44_INITIALIZED__
+      window.__NORYN_V45_INITIALIZED__
     ) {
-
       return;
     }
 
-
-    window.__NORYN_V44_INITIALIZED__ =
+    window.__NORYN_V45_INITIALIZED__ =
       true;
 
-
     loadChats();
-
 
     /* Modes */
 
@@ -1142,11 +1342,9 @@
       )
       .forEach(
         button => {
-
           button.addEventListener(
             "click",
             () => {
-
               setMode(
                 button.dataset.mode ||
                 "general"
@@ -1156,40 +1354,32 @@
         }
       );
 
-
     /* Send */
 
     const send =
       $("#send");
 
-
     if (send) {
-
       send.addEventListener(
         "click",
         sendMessage
       );
     }
 
-
     /* Textarea */
 
     const input =
       $("#message");
 
-
     if (input) {
-
       input.addEventListener(
         "keydown",
         event => {
-
           if (
             event.key ===
               "Enter" &&
             !event.shiftKey
           ) {
-
             event.preventDefault();
 
             sendMessage();
@@ -1198,21 +1388,16 @@
       );
     }
 
-
     /* New Chat */
 
     const newChat =
       $("#newChat");
 
-
     if (newChat) {
-
       newChat.addEventListener(
         "click",
         event => {
-
           event.preventDefault();
-
           event.stopPropagation();
 
           createNewChat();
@@ -1220,21 +1405,16 @@
       );
     }
 
-
     /* History */
 
     const historyButton =
       $("#historyButton");
 
-
     if (historyButton) {
-
       historyButton.addEventListener(
         "click",
         event => {
-
           event.preventDefault();
-
           event.stopPropagation();
 
           openHistory();
@@ -1242,19 +1422,15 @@
       );
     }
 
-
     /* Close History */
 
     const closeButton =
       $("#closeHistory");
 
-
     if (closeButton) {
-
       closeButton.addEventListener(
         "click",
         event => {
-
           event.preventDefault();
 
           closeHistory();
@@ -1262,19 +1438,15 @@
       );
     }
 
-
     /* New Chat inside panel */
 
     const panelNewChat =
       $("#panelNewChat");
 
-
     if (panelNewChat) {
-
       panelNewChat.addEventListener(
         "click",
         event => {
-
           event.preventDefault();
 
           createNewChat();
@@ -1282,30 +1454,24 @@
       );
     }
 
-
-    /* Click outside panel */
+    /* Click outside */
 
     const panel =
       $("#chatPanel");
 
-
     if (panel) {
-
       panel.addEventListener(
         "click",
         event => {
-
           if (
             event.target ===
             panel
           ) {
-
             closeHistory();
           }
         }
       );
     }
-
 
     /* Suggestions */
 
@@ -1315,23 +1481,18 @@
       )
       .forEach(
         button => {
-
           button.addEventListener(
             "click",
             () => {
-
               const inputBox =
                 $("#message");
-
 
               if (!inputBox)
                 return;
 
-
               inputBox.value =
                 button.dataset.prompt ||
                 button.textContent.trim();
-
 
               inputBox.focus();
             }
@@ -1339,13 +1500,11 @@
         }
       );
 
-
-    /* Restore latest chat */
+    /* Restore latest */
 
     if (
       state.chats.length > 0
     ) {
-
       const latest =
         state.chats
           .slice()
@@ -1355,40 +1514,33 @@
               a.updatedAt
           )[0];
 
-
       state.currentChatId =
         latest.id;
-
 
       setMode(
         latest.mode ||
         "general"
       );
 
-
       renderChat(
         latest
       );
 
     } else {
-
       createNewChat();
     }
-
 
     renderHistory();
   }
 
-
-  /* =======================================================
-     Initialization
-     ======================================================= */
+  /* =========================================================
+     INITIALIZATION
+     ========================================================= */
 
   if (
     document.readyState ===
     "loading"
   ) {
-
     document.addEventListener(
       "DOMContentLoaded",
       setup,
@@ -1396,9 +1548,7 @@
         once: true
       }
     );
-
   } else {
-
     setup();
   }
 
