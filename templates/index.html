@@ -1,1 +1,255 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111827">
+    <title>NORYN AI v4</title>
+    <link rel="stylesheet" href="/static/style.css">
 
+    <style>
+        .app-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .top-action {
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            color: #111827;
+            border-radius: 12px;
+            padding: 9px 11px;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .top-action:active {
+            transform: scale(.97);
+        }
+
+        .suggestions-wrap {
+            margin: 18px auto 10px;
+            max-width: 850px;
+        }
+
+        .suggestions-title {
+            text-align: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: #6b7280;
+            margin-bottom: 10px;
+        }
+
+        .suggestions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 9px;
+        }
+
+        .suggestion {
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            color: #111827;
+            border-radius: 14px;
+            padding: 12px 10px;
+            min-height: 48px;
+            font: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: transform .15s ease, border-color .15s ease, background .15s ease;
+        }
+
+        .suggestion:active {
+            transform: scale(.98);
+        }
+
+        .suggestion:hover {
+            border-color: #9ca3af;
+            background: #f9fafb;
+        }
+
+        .chat-panel {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            background: rgba(0,0,0,.35);
+        }
+
+        .chat-panel.open {
+            display: block;
+        }
+
+        .chat-panel-card {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: min(360px, 88vw);
+            height: 100%;
+            background: #fff;
+            box-shadow: -8px 0 30px rgba(0,0,0,.15);
+            padding: 18px;
+            overflow-y: auto;
+        }
+
+        .chat-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .chat-panel-head h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .history-new {
+            width: 100%;
+            border: 0;
+            border-radius: 13px;
+            padding: 12px;
+            background: #111827;
+            color: #fff;
+            font: inherit;
+            cursor: pointer;
+            margin-bottom: 14px;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            border: 1px solid #e5e7eb;
+            border-radius: 13px;
+            padding: 9px;
+            margin-bottom: 8px;
+            background: #fff;
+        }
+
+        .history-open {
+            flex: 1;
+            border: 0;
+            background: transparent;
+            text-align: right;
+            font: inherit;
+            cursor: pointer;
+            color: #111827;
+            min-width: 0;
+        }
+
+        .history-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-delete {
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .panel-close {
+            border: 0;
+            background: transparent;
+            font-size: 22px;
+            cursor: pointer;
+        }
+
+        .empty-history {
+            text-align: center;
+            color: #6b7280;
+            padding: 25px 10px;
+            font-size: 14px;
+        }
+
+        @media (max-width:430px) {
+            .suggestion {
+                font-size: 12px;
+                padding: 10px 7px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<header class="topbar">
+    <div class="logo">NORYN <span>AI</span></div>
+
+    <div class="app-actions">
+        <div class="version">v4.1</div>
+        <button type="button" class="top-action" id="newChat" aria-label="محادثة جديدة">＋</button>
+        <button type="button" class="top-action" id="historyButton" aria-label="المحادثات">☰</button>
+    </div>
+</header>
+
+<main>
+    <section class="welcome" id="welcome">
+        <h1>مرحبًا بك في NORYN AI</h1>
+        <p>مساعدك الذكي للبرمجة والتعلم والكتابة</p>
+
+        <div class="suggestions-wrap">
+            <div class="suggestions-title">✨ جرّب NORYN</div>
+
+            <div class="suggestions">
+                <button type="button" class="suggestion" data-prompt="اكتب لي قصة قصيرة وممتعة">
+                    ✍️ اكتب لي قصة
+                </button>
+
+                <button type="button" class="suggestion" data-prompt="اشرح لي موضوعًا بطريقة بسيطة">
+                    📚 اشرح لي موضوعًا
+                </button>
+
+                <button type="button" class="suggestion" data-prompt="أعطني فكرة لمشروع جديد ومميز">
+                    💡 أعطني فكرة
+                </button>
+
+                <button type="button" class="suggestion" data-prompt="لخص لي هذا النص بطريقة واضحة">
+                    📝 لخص لي نصًا
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <div class="modes">
+        <button data-mode="general" class="active">🌍 عام</button>
+        <button data-mode="code">💻 برمجة</button>
+        <button data-mode="learn">📚 تعلم</button>
+        <button data-mode="write">✍️ كتابة</button>
+    </div>
+
+    <section id="chat">
+        <div id="messages">
+            <div class="message ai">مرحبًا! أنا NORYN AI 🤖<br>كيف يمكنني مساعدتك؟</div>
+        </div>
+
+        <div class="input-area">
+            <textarea id="message" placeholder="اكتب رسالتك..."></textarea>
+            <button id="send">إرسال</button>
+        </div>
+    </section>
+</main>
+
+<!-- لوحة المحادثات -->
+<div class="chat-panel" id="chatPanel" aria-hidden="true">
+    <div class="chat-panel-card">
+        <div class="chat-panel-head">
+            <h2>🗂️ محادثاتي</h2>
+            <button class="panel-close" id="closeHistory" type="button">×</button>
+        </div>
+
+        <button class="history-new" id="panelNewChat" type="button">
+            ＋ محادثة جديدة
+        </button>
+
+        <div id="historyList"></div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
