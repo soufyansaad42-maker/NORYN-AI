@@ -134,4 +134,223 @@ textarea {
 
 #send:disabled {
     opacity: 0.6;
+        }
+/* =========================================================
+   NORYN AI v4.5
+   Markdown + Code Blocks
+   ========================================================= */
+
+.message.ai {
+    line-height: 1.85;
+    overflow-wrap: anywhere;
+}
+
+.message.ai p {
+    margin: 0 0 12px;
+}
+
+.message.ai p:last-child {
+    margin-bottom: 0;
+}
+
+.message.ai h1,
+.message.ai h2,
+.message.ai h3,
+.message.ai h4,
+.message.ai h5,
+.message.ai h6 {
+    margin: 16px 0 9px;
+    line-height: 1.45;
+    font-weight: 800;
+    color: #111827;
+}
+
+.message.ai h1 {
+    font-size: 24px;
+}
+
+.message.ai h2 {
+    font-size: 21px;
+}
+
+.message.ai h3 {
+    font-size: 19px;
+}
+
+.message.ai h4 {
+    font-size: 17px;
+}
+
+.message.ai h5,
+.message.ai h6 {
+    font-size: 16px;
+}
+
+.message.ai ul,
+.message.ai ol {
+    margin: 8px 0 14px;
+    padding-right: 24px;
+}
+
+.message.ai li {
+    margin: 5px 0;
+}
+
+.message.ai strong {
+    font-weight: 800;
+    color: #111827;
+}
+
+.message.ai code:not(.code-block code) {
+    display: inline-block;
+    direction: ltr;
+    unicode-bidi: plaintext;
+    background: #eef2f7;
+    color: #111827;
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-family:
+        "Fira Code",
+        "Cascadia Code",
+        Consolas,
+        monospace;
+    font-size: .9em;
+}
+
+.message.ai blockquote {
+    margin: 12px 0;
+    padding: 9px 13px;
+    border-right: 4px solid #111827;
+    background: #f3f4f6;
+    border-radius: 8px;
+    color: #374151;
+}
+
+.md-spacer {
+    height: 5px;
+}
+
+/* =========================================================
+   CODE BLOCK
+   ========================================================= */
+
+.code-block {
+    direction: ltr;
+    text-align: left;
+    margin: 15px 0;
+    border-radius: 13px;
+    overflow: hidden;
+    background: #111827;
+    border: 1px solid #1f2937;
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, .12);
+}
+
+.code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #1f2937;
+}
+
+.code-language {
+    color: #d1d5db;
+    font-family:
+        "Fira Code",
+        Consolas,
+        monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .5px;
+}
+
+.copy-code {
+    border: 1px solid #4b5563;
+    background: #374151;
+    color: #fff;
+    border-radius: 7px;
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.copy-code:active {
+    transform: scale(.96);
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 15px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.code-block pre code {
+    display: block;
+    color: #f9fafb;
+    font-family:
+        "Fira Code",
+        "Cascadia Code",
+        Consolas,
+        monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre;
+}
+
+/* =========================================================
+   LINKS
+   ========================================================= */
+
+.message.ai a {
+    color: #2563eb;
+    text-decoration: underline;
+    word-break: break-word;
+}
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+    .message.ai h1 {
+        font-size: 21px;
+    }
+
+    .message.ai h2 {
+        font-size: 19px;
+    }
+
+    .message.ai h3 {
+        font-size: 17px;
+    }
+
+    .message.ai {
+        font-size: 15px;
+        line-height: 1.8;
+    }
+
+    .code-block {
+        margin-left: -4px;
+        margin-right: -4px;
+        border-radius: 10px;
+    }
+
+    .code-block pre {
+        padding: 12px;
+    }
+
+    .code-block pre code {
+        font-size: 12px;
+        line-height: 1.65;
+    }
+
+    .copy-code {
+        font-size: 10px;
+        padding: 5px 8px;
+    }
 }
