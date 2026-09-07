@@ -73,6 +73,22 @@
 
 
   /* =======================================================
+     Unescape HTML
+     يستخدم فقط لاستعادة الكود الأصلي (للنسخ)
+     من نص تم تهريبه مسبقًا عبر escapeHTML
+  ======================================================= */
+
+  function unescapeHTML(value) {
+    return String(value)
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, "\"")
+      .replace(/&#039;/g, "'");
+  }
+
+
+  /* =======================================================
      Markdown Renderer
      بسيط وآمن بدون مكتبات خارجية
   ======================================================= */
@@ -89,6 +105,11 @@
           ? `<span class="code-language">${escapeHTML(language)}</span>`
           : "";
 
+        /* code هنا مُهرّب أصلًا (لأنه جزء من html المُهرّب) */
+        /* نعيده لأصله فقط لغرض النسخ، وليس للعرض */
+
+        const rawCode = unescapeHTML(code);
+
         return `
           <div class="noryn-code">
             <div class="code-head">
@@ -96,7 +117,7 @@
               <button
                 type="button"
                 class="code-copy"
-                data-code="${encodeURIComponent(code)}"
+                data-code="${encodeURIComponent(rawCode)}"
               >
                 نسخ
               </button>
