@@ -1,21 +1,50 @@
-import os
-import traceback
+# =========================================================
+# NORYN AI v7
+# Search + Write
+#
+# Backend:
+# Flask
+# Hugging Face InferenceClient
+# Brave Search API
+#
+# Features:
+# - AI chat
+# - Web search
+# - Search + AI synthesis
+# - Writing mode
+# - Conversation memory
+# - Arabic / English
+# - Sources
+# - Automatic search detection
+# - Render compatible
+# =========================================================
 
-from flask import Flask, render_template, request, jsonify
+import os
+import re
+import traceback
+from urllib.parse import quote
+
+import requests
+
+from flask import (
+    Flask,
+    render_template,
+    request,
+    jsonify
+)
+
 from huggingface_hub import InferenceClient
 
 
 # =========================================================
-# NORYN AI v7
-# Search + Write
-# Flask + Hugging Face
+# APP
 # =========================================================
 
 app = Flask(__name__)
 
 
 # =========================================================
-# Environment
+# ENVIRONMENT
 # =========================================================
 
 HF_TOKEN = os.environ.get(
@@ -23,10 +52,22 @@ HF_TOKEN = os.environ.get(
     ""
 ).strip()
 
-MODEL = os.environ.get(
+
+HF_MODEL = os.environ.get(
     "HF_MODEL",
     "deepseek-ai/DeepSeek-V3-0324"
 ).strip()
+
+
+BRAVE_API_KEY = os.environ.get(
+    "BRAVE_SEARCH_API_KEY",
+    ""
+).strip()
+
+
+# =========================================================
+# AI SETTINGS
+# =========================================================
 
 MAX_TOKENS = int(
     os.environ.get(
@@ -35,6 +76,7 @@ MAX_TOKENS = int(
     )
 )
 
+
 TEMPERATURE = float(
     os.environ.get(
         "HF_TEMPERATURE",
@@ -42,11 +84,12 @@ TEMPERATURE = float(
     )
 )
 
-# حماية من القيم غير المناسبة
+
 MAX_TOKENS = max(
     256,
     min(MAX_TOKENS, 8192)
 )
+
 
 TEMPERATURE = max(
     0.0,
@@ -55,7 +98,49 @@ TEMPERATURE = max(
 
 
 # =========================================================
-# Hugging Face Client
+# SEARCH SETTINGS
+# =========================================================
+
+SEARCH_RESULTS_COUNT = int(
+    os.environ.get(
+        "SEARCH_RESULTS_COUNT",
+        "8"
+    )
+)
+
+
+SEARCH_RESULTS_COUNT = max(
+    1,
+    min(SEARCH_RESULTS_COUNT, 20)
+)
+
+
+SEARCH_COUNTRY = os.environ.get(
+    "SEARCH_COUNTRY",
+    "TN"
+).strip().upper()
+
+
+SEARCH_LANG = os.environ.get(
+    "SEARCH_LANG",
+    "ar"
+).strip().lower()
+
+
+# =========================================================
+# HTTP SETTINGS
+# =========================================================
+
+REQUEST_TIMEOUT = int(
+    os.environ.get(
+        "REQUEST_TIMEOUT",
+        "20"
+    )
+)
+
+
+# =========================================================
+# HUGGING FACE CLIENT
 # =========================================================
 
 client = InferenceClient(
@@ -65,115 +150,365 @@ client = InferenceClient(
 
 
 # =========================================================
-# NORYN AI SYSTEM PROMPTS
+# PROMPTS
 # =========================================================
-
-SEARCH_PROMPT = """
-أنت NORYN AI، مساعد متخصص في البحث والمعرفة.
-
-مهمتك الأساسية:
-- الإجابة عن أسئلة المستخدم.
-- شرح المعلومات بوضوح.
-- مساعدة المستخدم على فهم المواضيع.
-- ربط السؤال بسياق المحادثة السابقة.
-- الإجابة بالعربية إذا كان المستخدم يكتب بالعربية.
-- الإجابة باللغة التي يستخدمها المستخدم إذا طلب ذلك.
-
-قواعد مهمة:
-1. لا تخترع مصادر أو روابط أو حقائق غير متأكد منها.
-2. إذا لم تكن متأكدًا من معلومة، قل ذلك بوضوح.
-3. لا تدّعي أنك أجريت بحثًا مباشرًا على الإنترنت إذا لم يتم تزويدك بأداة بحث.
-4. ميّز بين المعلومات المؤكدة والاحتمالات.
-5. اجعل الإجابة منظمة وسهلة القراءة.
-6. استخدم العناوين والقوائم عندما يكون ذلك مفيدًا.
-7. إذا كان السؤال تعليميًا، اشرح الفكرة بطريقة بسيطة.
-8. إذا كان السؤال يتطلب مقارنة، أنشئ مقارنة واضحة.
-9. إذا طلب المستخدم اللغة الإنجليزية، أجب بالإنجليزية.
-10. حافظ على سياق المحادثة السابقة.
-"""
-
 
 WRITE_PROMPT = """
-أنت NORYN AI، مساعد متخصص في الكتابة والتحرير.
+أنت NORYN AI، مساعد متخصص في الكتابة.
 
-مهمتك:
-- كتابة المقالات.
+مهمتك مساعدة المستخدم في:
+
 - كتابة القصص.
-- كتابة المنشورات.
-- كتابة الرسائل.
+- المقالات.
+- النصوص.
 - إعادة الصياغة.
 - التلخيص.
-- تحسين النصوص.
-- اقتراح العناوين.
-- إنشاء الأفكار.
-- تحويل الأفكار إلى نص منظم.
+- الأفكار.
+- الرسائل.
+- المحتوى الإبداعي.
+- كتابة النصوص التعليمية.
+- تحسين الأسلوب واللغة.
 
-قواعد مهمة:
-1. افهم المطلوب قبل الكتابة.
-2. إذا طلب المستخدم نصًا جاهزًا، أعطه النص مباشرة.
-3. لا تضف شرحًا طويلًا إذا لم يطلبه المستخدم.
-4. حافظ على اللغة التي يطلبها المستخدم.
-5. إذا كتب المستخدم بالعربية، اكتب بالعربية.
-6. إذا طلب الإنجليزية، اكتب بالإنجليزية.
-7. اجعل النص طبيعيًا ومنظمًا.
-8. لا تكرر الجمل بلا سبب.
-9. عند إعادة الصياغة، حافظ على المعنى الأصلي.
-10. إذا طلب المستخدم أسلوبًا معينًا، التزم به.
+القواعد:
+
+1. إذا كتب المستخدم بالعربية فأجب بالعربية.
+2. إذا كتب بالإنجليزية فأجب بالإنجليزية.
+3. إذا طلب نصًا جاهزًا، قدم النص مباشرة.
+4. لا تضف شرحًا غير ضروري.
+5. اجعل النص منظمًا وواضحًا.
+6. لا تدّعي أنك بحثت في الويب إذا لم يتم البحث.
+"""
+
+
+SEARCH_PROMPT = """
+أنت NORYN AI، مساعد بحث وكتابة ذكي.
+
+ستحصل أحيانًا على نتائج بحث حقيقية من الويب.
+
+مهمتك:
+
+1. فهم سؤال المستخدم.
+2. تحليل نتائج البحث.
+3. الاعتماد على المصادر المتاحة بدل اختراع معلومات.
+4. تقديم إجابة واضحة ومنظمة.
+5. إذا كانت المصادر متعارضة، وضّح ذلك.
+6. إذا كانت المعلومات حديثة، اذكر أنها مبنية على نتائج البحث الحالية.
+7. لا تخترع مصدرًا أو رابطًا.
+8. لا تقل إنك فتحت صفحة أو قرأت مصدرًا إذا لم يتم تزويدك بمحتواه.
+9. إذا كانت نتائج البحث غير كافية، قل ذلك بوضوح.
+10. إذا كان السؤال بالعربية، أجب بالعربية.
+11. إذا كان السؤال بالإنجليزية، أجب بالإنجليزية.
+
+عند استخدام نتائج البحث، أضف في نهاية الإجابة قسمًا بعنوان:
+
+المصادر
+
+واكتب المصادر باستخدام أرقام [1] و[2] و[3] حسب المعلومات التي استندت إليها.
+"""
+
+
+GENERAL_PROMPT = """
+أنت NORYN AI، مساعد ذكي للبحث والكتابة.
+
+يمكنك:
+
+- الإجابة عن الأسئلة.
+- البحث في الويب عندما تكون المعلومات بحاجة إلى تحديث أو تحقق.
+- مساعدة المستخدم في الكتابة.
+- التلخيص.
+- الشرح.
+- تنظيم الأفكار.
+
+القواعد:
+
+1. أجب باللغة التي يستخدمها المستخدم.
+2. كن واضحًا ومباشرًا.
+3. لا تخترع معلومات.
+4. لا تدّعي استخدام أدوات لم تستخدمها.
+5. إذا كانت المعلومة حديثة أو قابلة للتغير، فمن الأفضل الاعتماد على البحث.
+6. إذا أعطيتك نتائج بحث، استخدمها في الإجابة واذكر المصادر.
 """
 
 
 # =========================================================
-# Helpers
+# SEARCH DETECTION
 # =========================================================
 
-def clean_text(value, default=""):
+SEARCH_KEYWORDS_AR = [
+    "آخر",
+    "اخر",
+    "اليوم",
+    "حاليًا",
+    "حاليا",
+    "الآن",
+    "الان",
+    "حديث",
+    "حديثة",
+    "أخبار",
+    "اخبار",
+    "متى",
+    "موعد",
+    "سعر",
+    "أسعار",
+    "اسعار",
+    "نتائج",
+    "ترتيب",
+    "معلومات عن",
+    "من هو",
+    "ما هو",
+    "ما هي",
+    "أين",
+    "اين",
+    "كيف",
+    "أفضل",
+    "افضل",
+    "مقارنة",
+    "قارن",
+    "ابحث",
+    "بحث",
+    "مصادر",
+    "حقيقة",
+    "هل صحيح",
+    "آخر الأخبار",
+    "هذا الأسبوع",
+    "هذا الشهر"
+]
+
+
+SEARCH_KEYWORDS_EN = [
+    "latest",
+    "today",
+    "current",
+    "now",
+    "recent",
+    "news",
+    "price",
+    "prices",
+    "results",
+    "ranking",
+    "who is",
+    "what is",
+    "where is",
+    "when",
+    "best",
+    "compare",
+    "comparison",
+    "search",
+    "look up",
+    "sources",
+    "fact check",
+    "this week",
+    "this month"
+]
+
+
+WRITE_KEYWORDS_AR = [
+    "اكتب لي",
+    "اكتب",
+    "أنشئ لي نص",
+    "أنشئ نص",
+    "قصة",
+    "مقال",
+    "رسالة",
+    "قصيدة",
+    "إعادة صياغة",
+    "لخص",
+    "لخص لي",
+    "تلخيص",
+    "صياغة",
+    "وصف"
+]
+
+
+WRITE_KEYWORDS_EN = [
+    "write me",
+    "write",
+    "story",
+    "article",
+    "letter",
+    "poem",
+    "rewrite",
+    "summarize",
+    "summary",
+    "description"
+]
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def clean_text(
+    value,
+    default=""
+):
     """
     تحويل القيمة إلى نص آمن.
     """
+
     if value is None:
         return default
 
     return str(value).strip()
 
 
-def get_system_prompt(mode):
+def normalize_text(text):
     """
-    اختيار شخصية NORYN حسب الوضع.
+    تبسيط النص لاكتشاف الكلمات.
+    """
+
+    text = clean_text(text).lower()
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text
+
+
+def detect_language(text):
+    """
+    اكتشاف بسيط للغة المستخدم.
+    """
+
+    text = clean_text(text)
+
+    arabic_chars = len(
+        re.findall(
+            r"[\u0600-\u06FF]",
+            text
+        )
+    )
+
+    latin_chars = len(
+        re.findall(
+            r"[A-Za-z]",
+            text
+        )
+    )
+
+    if arabic_chars >= latin_chars:
+        return "ar"
+
+    return "en"
+
+
+def is_write_request(message):
+    """
+    معرفة هل الطلب متعلق بالكتابة.
+    """
+
+    text = normalize_text(message)
+
+    for keyword in WRITE_KEYWORDS_AR:
+        if keyword in text:
+            return True
+
+    for keyword in WRITE_KEYWORDS_EN:
+        if keyword in text:
+            return True
+
+    return False
+
+
+def is_search_request(
+    message,
+    mode="general"
+):
+    """
+    تحديد هل يجب استخدام بحث الويب.
+    """
+
+    text = normalize_text(message)
+
+    mode = clean_text(
+        mode,
+        "general"
+    ).lower()
+
+    # إذا اختار المستخدم البحث صراحة
+    if mode == "search":
+        return True
+
+    # كلمات تدل على البحث
+    for keyword in SEARCH_KEYWORDS_AR:
+        if keyword in text:
+            return True
+
+    for keyword in SEARCH_KEYWORDS_EN:
+        if keyword in text:
+            return True
+
+    # أسئلة تحتوي على مؤشرات زمنية
+    time_patterns = [
+        r"\b20\d{2}\b",
+        r"\b2026\b",
+        r"\b2025\b",
+        r"\b2027\b"
+    ]
+
+    for pattern in time_patterns:
+        if re.search(
+            pattern,
+            text
+        ):
+            return True
+
+    return False
+
+
+def get_base_prompt(
+    mode,
+    use_search=False
+):
+    """
+    اختيار النظام المناسب.
     """
 
     mode = clean_text(
         mode,
-        "search"
+        "general"
     ).lower()
 
     if mode == "write":
         return WRITE_PROMPT
 
-    return SEARCH_PROMPT
+    if use_search:
+        return SEARCH_PROMPT
+
+    return GENERAL_PROMPT
 
 
-def normalize_history(history):
+# =========================================================
+# CONVERSATION HISTORY
+# =========================================================
+
+def clean_history(history):
     """
-    تحويل تاريخ المحادثة القادم من JavaScript
-    إلى صيغة messages التي يفهمها النموذج.
+    تنظيف سجل المحادثة القادم من app.js.
     """
 
-    if not isinstance(history, list):
+    if not isinstance(
+        history,
+        list
+    ):
         return []
 
-    messages = []
-
-    # نأخذ آخر 20 رسالة فقط
-    history = history[-20:]
+    cleaned = []
 
     for item in history:
 
-        if not isinstance(item, dict):
+        if not isinstance(
+            item,
+            dict
+        ):
             continue
 
-        message_type = clean_text(
+        msg_type = clean_text(
             item.get("type")
-        )
+        ).lower()
 
         text = clean_text(
             item.get("text")
@@ -182,26 +517,214 @@ def normalize_history(history):
         if not text:
             continue
 
-        if message_type == "user":
+        if msg_type == "user":
 
-            messages.append({
+            cleaned.append({
                 "role": "user",
                 "content": text
             })
 
-        elif message_type == "ai":
+        elif msg_type == "ai":
 
-            messages.append({
+            cleaned.append({
                 "role": "assistant",
                 "content": text
             })
 
-    return messages
+    # لا نسمح بتاريخ ضخم جدًا
+    return cleaned[-20:]
 
+
+# =========================================================
+# BRAVE SEARCH
+# =========================================================
+
+def brave_search(
+    query,
+    language="ar"
+):
+    """
+    البحث في الويب باستخدام Brave Search API.
+    """
+
+    if not BRAVE_API_KEY:
+
+        raise RuntimeError(
+            "BRAVE_SEARCH_API_KEY غير موجود في إعدادات Render."
+        )
+
+    query = clean_text(query)
+
+    if not query:
+        return []
+
+    # Brave يضع حدًا لطول الاستعلام.
+    query = query[:400]
+
+    search_language = (
+        "ar"
+        if language == "ar"
+        else "en"
+    )
+
+    url = (
+        "https://api.search.brave.com"
+        "/res/v1/web/search"
+    )
+
+    headers = {
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token":
+            BRAVE_API_KEY
+    }
+
+    params = {
+        "q": query,
+        "count": SEARCH_RESULTS_COUNT,
+        "country": SEARCH_COUNTRY,
+        "search_lang": search_language,
+        "safesearch": "strict"
+    }
+
+    response = requests.get(
+        url,
+        headers=headers,
+        params=params,
+        timeout=REQUEST_TIMEOUT
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    results = []
+
+    web_data = data.get(
+        "web",
+        {}
+    )
+
+    raw_results = web_data.get(
+        "results",
+        []
+    )
+
+    if not isinstance(
+        raw_results,
+        list
+    ):
+        return []
+
+    for index, result in enumerate(
+        raw_results,
+        start=1
+    ):
+
+        if not isinstance(
+            result,
+            dict
+        ):
+            continue
+
+        title = clean_text(
+            result.get("title")
+        )
+
+        url_value = clean_text(
+            result.get("url")
+        )
+
+        description = clean_text(
+            result.get("description")
+        )
+
+        if not url_value:
+            continue
+
+        results.append({
+            "id": index,
+            "title": title,
+            "url": url_value,
+            "description": description
+        })
+
+    return results
+
+
+# =========================================================
+# SEARCH CONTEXT
+# =========================================================
+
+def build_search_context(
+    results
+):
+    """
+    تحويل نتائج البحث إلى سياق مناسب للنموذج.
+    """
+
+    if not results:
+        return (
+            "لم يتم العثور على نتائج ويب "
+            "كافية."
+        )
+
+    parts = []
+
+    for result in results:
+
+        number = result["id"]
+        title = result["title"]
+        url = result["url"]
+        description = result["description"]
+
+        block = f"""
+المصدر [{number}]
+العنوان: {title}
+الرابط: {url}
+المقتطف: {description}
+"""
+
+        parts.append(
+            block.strip()
+        )
+
+    return "\n\n".join(parts)
+
+
+# =========================================================
+# SOURCE FORMAT
+# =========================================================
+
+def clean_sources(
+    results
+):
+    """
+    تجهيز المصادر لإرسالها للواجهة.
+    """
+
+    sources = []
+
+    for result in results:
+
+        sources.append({
+            "id": result["id"],
+            "title": result["title"],
+            "url": result["url"],
+            "description":
+                result["description"]
+        })
+
+    return sources
+
+
+# =========================================================
+# AI RESPONSE
+# =========================================================
 
 def extract_reply(response):
     """
-    استخراج نص الإجابة من Hugging Face.
+    استخراج النص من Hugging Face.
     """
 
     if not response:
@@ -248,7 +771,55 @@ def extract_reply(response):
 
 
 # =========================================================
-# Main Page
+# BUILD AI MESSAGES
+# =========================================================
+
+def build_messages(
+    system_prompt,
+    history,
+    user_message,
+    search_context=""
+):
+    """
+    بناء رسائل النموذج.
+    """
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt
+        }
+    ]
+
+    # ذاكرة المحادثة
+    for item in history:
+
+        messages.append(item)
+
+    # نتائج البحث
+    if search_context:
+
+        messages.append({
+            "role": "system",
+            "content": (
+                "نتائج البحث الحالية من الويب:\n\n"
+                + search_context
+                + "\n\n"
+                "استخدم هذه النتائج عند الحاجة، "
+                "ولا تخترع مصادر."
+            )
+        })
+
+    messages.append({
+        "role": "user",
+        "content": user_message
+    })
+
+    return messages
+
+
+# =========================================================
+# MAIN PAGE
 # =========================================================
 
 @app.route("/")
@@ -260,28 +831,140 @@ def home():
 
 
 # =========================================================
-# Health
+# HEALTH
 # =========================================================
 
-@app.route("/health")
+@app.route(
+    "/health",
+    methods=["GET"]
+)
 def health():
 
     return jsonify({
+
         "ok": True,
-        "ai": bool(HF_TOKEN),
-        "model": MODEL,
-        "service": "NORYN AI",
-        "version": "7",
-        "modes": [
+
+        "service":
+            "NORYN AI",
+
+        "version":
+            "7.0",
+
+        "ai":
+            bool(HF_TOKEN),
+
+        "search":
+            bool(BRAVE_API_KEY),
+
+        "model":
+            HF_MODEL,
+
+        "features": [
             "search",
-            "write"
+            "write",
+            "conversation-memory",
+            "sources"
         ],
-        "max_tokens": MAX_TOKENS
+
+        "max_tokens":
+            MAX_TOKENS
     })
 
 
 # =========================================================
-# Chat API
+# DIRECT SEARCH API
+# =========================================================
+
+@app.route(
+    "/api/search",
+    methods=["POST"]
+)
+def search_api():
+
+    try:
+
+        data = request.get_json(
+            silent=True
+        ) or {}
+
+        query = clean_text(
+            data.get("query")
+        )
+
+        language = clean_text(
+            data.get(
+                "language",
+                "ar"
+            )
+        ).lower()
+
+        if not query:
+
+            return jsonify({
+                "ok": False,
+                "error":
+                    "اكتب عبارة البحث أولًا."
+            }), 400
+
+        if len(query) > 400:
+
+            return jsonify({
+                "ok": False,
+                "error":
+                    "عبارة البحث طويلة جدًا."
+            }), 400
+
+        results = brave_search(
+            query,
+            language
+        )
+
+        return jsonify({
+
+            "ok": True,
+
+            "query":
+                query,
+
+            "results":
+                clean_sources(results),
+
+            "count":
+                len(results)
+
+        })
+
+    except Exception as error:
+
+        print(
+            "\n========== SEARCH ERROR ==========",
+            flush=True
+        )
+
+        print(
+            repr(error),
+            flush=True
+        )
+
+        traceback.print_exc()
+
+        print(
+            "=================================\n",
+            flush=True
+        )
+
+        return jsonify({
+
+            "ok": False,
+
+            "error":
+                "تعذر تنفيذ البحث الآن."
+
+        }), 502
+
+
+# =========================================================
+# CHAT API
 # =========================================================
 
 @app.route(
@@ -290,214 +973,208 @@ def health():
 )
 def chat():
 
-    # -----------------------------------------------------
-    # Read JSON
-    # -----------------------------------------------------
-
-    data = request.get_json(
-        silent=True
-    ) or {}
-
-
-    message = clean_text(
-        data.get("message")
-    )
-
-
-    mode = clean_text(
-        data.get("mode"),
-        "search"
-    ).lower()
-
-
-    history = data.get(
-        "history",
-        []
-    )
-
-
-    # -----------------------------------------------------
-    # Validate mode
-    # -----------------------------------------------------
-
-    if mode not in {
-        "search",
-        "write"
-    }:
-
-        mode = "search"
-
-
-    # -----------------------------------------------------
-    # Validate message
-    # -----------------------------------------------------
-
-    if not message:
-
-        return jsonify({
-            "ok": False,
-            "error":
-                "اكتب رسالتك أولًا."
-        }), 400
-
-
-    # -----------------------------------------------------
-    # Validate HF token
-    # -----------------------------------------------------
-
-    if not HF_TOKEN:
-
-        return jsonify({
-            "ok": False,
-            "error":
-                "HF_TOKEN غير موجود في إعدادات Render."
-        }), 500
-
-
-    # -----------------------------------------------------
-    # Limit input
-    # -----------------------------------------------------
-
-    if len(message) > 30000:
-
-        return jsonify({
-            "ok": False,
-            "error":
-                "الرسالة طويلة جدًا."
-        }), 413
-
-
-    # -----------------------------------------------------
-    # System Prompt
-    # -----------------------------------------------------
-
-    system_prompt = get_system_prompt(
-        mode
-    )
-
-
-    # -----------------------------------------------------
-    # Normalize conversation
-    # -----------------------------------------------------
-
-    conversation =
-        normalize_history(
-            history
-        )
-
-
-    # -----------------------------------------------------
-    # Prevent duplicate current message
-    # -----------------------------------------------------
-
-    if conversation:
-
-        last = conversation[-1]
-
-        if (
-            last.get("role") == "user"
-            and
-            last.get("content") == message
-        ):
-
-            conversation = conversation[:-1]
-
-
-    # -----------------------------------------------------
-    # Build final messages
-    # -----------------------------------------------------
-
-    messages = [
-
-        {
-            "role": "system",
-            "content": system_prompt
-        }
-
-    ]
-
-
-    messages.extend(
-        conversation
-    )
-
-
-    messages.append({
-
-        "role": "user",
-
-        "content": message
-
-    })
-
-
-    # -----------------------------------------------------
-    # Special instructions
-    # -----------------------------------------------------
-
-    if mode == "search":
-
-        messages.append({
-
-            "role": "system",
-
-            "content": """
-أجب عن السؤال الحالي اعتمادًا على
-المعلومات التي تعرفها وسياق المحادثة.
-
-إذا كان السؤال متابعة لسؤال سابق،
-استخدم السياق السابق لفهم المقصود.
-
-لا تدّعي إجراء بحث مباشر على الإنترنت
-ما لم تكن لديك أداة بحث فعلية.
-"""
-        })
-
-
-    elif mode == "write":
-
-        messages.append({
-
-            "role": "system",
-
-            "content": """
-ركز على تنفيذ طلب الكتابة الحالي.
-
-إذا طلب المستخدم نصًا جاهزًا:
-ابدأ بالنص مباشرة.
-
-إذا طلب إعادة صياغة:
-حافظ على المعنى.
-
-إذا طلب قصة:
-اجعلها مترابطة ولها بداية ووسط ونهاية.
-
-إذا طلب مقالًا:
-نظمه إلى مقدمة وفقرات وخاتمة
-عندما يكون ذلك مناسبًا.
-"""
-        })
-
-
-    # -----------------------------------------------------
-    # Hugging Face Request
-    # -----------------------------------------------------
-
     try:
 
-        response = (
-            client.chat.completions.create(
+        # -------------------------------------------------
+        # Read JSON
+        # -------------------------------------------------
 
-                model=MODEL,
+        data = request.get_json(
+            silent=True
+        ) or {}
 
-                messages=messages,
+        message = clean_text(
+            data.get("message")
+        )
 
-                max_tokens=MAX_TOKENS,
+        mode = clean_text(
+            data.get(
+                "mode",
+                "general"
+            ),
+            "general"
+        ).lower()
 
-                temperature=TEMPERATURE
+        history = clean_history(
+            data.get(
+                "history",
+                []
             )
         )
 
+        # -------------------------------------------------
+        # Validate
+        # -------------------------------------------------
+
+        if not message:
+
+            return jsonify({
+
+                "ok": False,
+
+                "error":
+                    "اكتب رسالة أولًا."
+
+            }), 400
+
+        if len(message) > 30000:
+
+            return jsonify({
+
+                "ok": False,
+
+                "error":
+                    "الرسالة طويلة جدًا."
+
+            }), 413
+
+        if not HF_TOKEN:
+
+            return jsonify({
+
+                "ok": False,
+
+                "error":
+                    "HF_TOKEN غير موجود في إعدادات Render."
+
+            }), 500
+
+        # -------------------------------------------------
+        # Determine search
+        # -------------------------------------------------
+
+        language = detect_language(
+            message
+        )
+
+        writing_request = (
+            is_write_request(
+                message
+            )
+        )
+
+        should_search = (
+            is_search_request(
+                message,
+                mode
+            )
+        )
+
+        # وضع الكتابة لا يحتاج بحثًا
+        if mode == "write":
+
+            should_search = False
+
+        # إذا كان الطلب كتابة واضحة
+        if writing_request:
+
+            should_search = False
+
+        # -------------------------------------------------
+        # Search
+        # -------------------------------------------------
+
+        search_results = []
+
+        search_context = ""
+
+        if should_search:
+
+            if not BRAVE_API_KEY:
+
+                return jsonify({
+
+                    "ok": False,
+
+                    "error":
+                        "البحث غير مفعّل. "
+                        "أضف BRAVE_SEARCH_API_KEY "
+                        "في Render Environment."
+
+                }), 503
+
+            search_results = brave_search(
+                message,
+                language
+            )
+
+            search_context = (
+                build_search_context(
+                    search_results
+                )
+            )
+
+        # -------------------------------------------------
+        # Prompt
+        # -------------------------------------------------
+
+        system_prompt = get_base_prompt(
+            mode,
+            should_search
+        )
+
+        # -------------------------------------------------
+        # Additional search instructions
+        # -------------------------------------------------
+
+        if should_search:
+
+            system_prompt += """
+
+هذه إجابة مبنية على بحث ويب.
+
+مهم جدًا:
+
+- لا تخترع معلومات غير موجودة في النتائج.
+- استخدم أرقام المصادر [1] [2] [3] عند الاستناد إليها.
+- في نهاية الإجابة ضع قسم "المصادر".
+- في قسم المصادر اذكر فقط المصادر التي تم توفيرها لك.
+- لا تغير روابط المصادر.
+"""
+
+        # -------------------------------------------------
+        # Additional writing instructions
+        # -------------------------------------------------
+
+        if mode == "write":
+
+            system_prompt += """
+
+أنت الآن في وضع الكتابة.
+
+أعطِ المستخدم النص المطلوب مباشرة.
+لا تبحث في الويب إلا إذا طلب المستخدم البحث صراحة.
+"""
+
+        # -------------------------------------------------
+        # Build messages
+        # -------------------------------------------------
+
+        messages = build_messages(
+
+            system_prompt,
+
+            history,
+
+            message,
+
+            search_context
+        )
+
+        # -------------------------------------------------
+        # AI request
+        # -------------------------------------------------
+
+        response = client.chat.completions.create(
+
+            model=HF_MODEL,
+
+            messages=messages,
+
+            max_tokens=MAX_TOKENS,
+
+            temperature=TEMPERATURE
+        )
 
         # -------------------------------------------------
         # Extract reply
@@ -507,13 +1184,7 @@ def chat():
             response
         )
 
-
         if not reply:
-
-            print(
-                "NORYN ERROR: Empty response",
-                flush=True
-            )
 
             return jsonify({
 
@@ -524,6 +1195,13 @@ def chat():
 
             }), 502
 
+        # -------------------------------------------------
+        # Sources
+        # -------------------------------------------------
+
+        sources = clean_sources(
+            search_results
+        )
 
         # -------------------------------------------------
         # Success
@@ -533,20 +1211,32 @@ def chat():
 
             "ok": True,
 
-            "reply": reply,
+            "reply":
+                reply,
 
-            "model": MODEL,
+            "mode":
+                mode,
 
-            "mode": mode,
+            "searched":
+                should_search,
 
-            "version": "7"
+            "language":
+                language,
+
+            "model":
+                HF_MODEL,
+
+            "version":
+                "7.0",
+
+            "sources":
+                sources
 
         })
 
-
-    # -----------------------------------------------------
-    # Error
-    # -----------------------------------------------------
+    # =====================================================
+    # ERROR
+    # =====================================================
 
     except Exception as error:
 
@@ -567,7 +1257,6 @@ def chat():
             flush=True
         )
 
-
         return jsonify({
 
             "ok": False,
@@ -580,7 +1269,7 @@ def chat():
 
 
 # =========================================================
-# 404
+# ERROR HANDLERS
 # =========================================================
 
 @app.errorhandler(404)
@@ -596,10 +1285,6 @@ def not_found(error):
     }), 404
 
 
-# =========================================================
-# 405
-# =========================================================
-
 @app.errorhandler(405)
 def method_not_allowed(error):
 
@@ -612,10 +1297,6 @@ def method_not_allowed(error):
 
     }), 405
 
-
-# =========================================================
-# 500
-# =========================================================
 
 @app.errorhandler(500)
 def internal_error(error):
@@ -637,7 +1318,7 @@ def internal_error(error):
 
 
 # =========================================================
-# Local Development
+# LOCAL DEVELOPMENT / RENDER
 # =========================================================
 
 if __name__ == "__main__":
@@ -650,7 +1331,10 @@ if __name__ == "__main__":
     )
 
     app.run(
+
         host="0.0.0.0",
+
         port=port,
+
         debug=False
     )
