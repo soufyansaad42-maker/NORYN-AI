@@ -96,7 +96,23 @@
   function renderMarkdown(text) {
     let html = escapeHTML(text || "");
 
-    /* Code blocks */
+    /* =====================================================
+       Code blocks
+       -----------------------------------------------------
+       مهم جدًا: نستخرج كتل الكود ونستبدلها بعلامة مؤقتة
+       (placeholder) قبل تطبيق أي تحويلات Markdown أخرى
+       (bold, headings, lists, line breaks...).
+       لو تركنا كتلة الكود الحقيقية داخل html، فإن التحويلات
+       اللاحقة تشتغل عليها بالغلط وتكسرها، مثال:
+         - سطر "* {" في CSS reset يتحول إلى <li>{</li>
+         - "# " في تعليقات Python أو CSS ids تتحول إلى <h1>
+         - "\n" يتحول إلى <br> فيكسر تنسيق الكود
+         - backtick مفردة (template literals) تتحول inline code
+       لذلك نخفي الكود مؤقتًا، ونطبق باقي التحويلات، ثم نعيده
+       في النهاية كما هو دون أي مساس.
+    ===================================================== */
+
+    const codeBlocks = [];
 
     html = html.replace(
       /```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g,
@@ -110,7 +126,7 @@
 
         const rawCode = unescapeHTML(code);
 
-        return `
+        const blockHtml = `
           <div class="noryn-code">
             <div class="code-head">
               <span>${lang}</span>
@@ -125,6 +141,12 @@
             <pre><code>${code}</code></pre>
           </div>
         `;
+
+        const token = `@@NORYN_CODE_BLOCK_${codeBlocks.length}@@`;
+
+        codeBlocks.push(blockHtml);
+
+        return token;
       }
     );
 
@@ -181,6 +203,15 @@
     /* Line breaks */
 
     html = html.replace(/\n/g, "<br>");
+
+    /* استعادة كتل الكود الحقيقية بعد انتهاء كل التحويلات */
+
+    codeBlocks.forEach((blockHtml, index) => {
+
+      const token = `@@NORYN_CODE_BLOCK_${index}@@`;
+
+      html = html.split(token).join(blockHtml);
+    });
 
     return html;
   }
