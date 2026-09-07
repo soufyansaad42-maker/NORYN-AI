@@ -1,19 +1,15 @@
 import os
-import re
-import time
 import traceback
 
 from flask import Flask, render_template, request, jsonify
 from huggingface_hub import InferenceClient
-from huggingface_hub.errors import HfHubHTTPError
 
 
 # =========================================================
-# NORYN AI v8.1
-# Advanced Programmer + General AI Backend
-# Flask + Hugging Face InferenceClient
+# NORYN AI v7
+# Search + Write
+# Flask + Hugging Face
 # =========================================================
-
 
 app = Flask(__name__)
 
@@ -22,7 +18,10 @@ app = Flask(__name__)
 # Environment
 # =========================================================
 
-HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
+HF_TOKEN = os.environ.get(
+    "HF_TOKEN",
+    ""
+).strip()
 
 MODEL = os.environ.get(
     "HF_MODEL",
@@ -30,53 +29,28 @@ MODEL = os.environ.get(
 ).strip()
 
 MAX_TOKENS = int(
-    os.environ.get("HF_MAX_TOKENS", "8192")
+    os.environ.get(
+        "HF_MAX_TOKENS",
+        "4096"
+    )
 )
 
 TEMPERATURE = float(
-    os.environ.get("HF_TEMPERATURE", "0.65")
+    os.environ.get(
+        "HF_TEMPERATURE",
+        "0.7"
+    )
 )
 
-MAX_HISTORY = int(
-    os.environ.get("HF_MAX_HISTORY", "24")
-)
-
-MAX_MESSAGE_LENGTH = int(
-    os.environ.get("HF_MAX_MESSAGE_LENGTH", "50000")
-)
-
-# الحد الأقصى لعدد الأحرف في تاريخ المحادثة المرسل للنموذج
-# (حماية من إرسال محادثات ضخمة جدًا للنموذج)
-MAX_HISTORY_CHARS = int(
-    os.environ.get("HF_MAX_HISTORY_CHARS", "24000")
-)
-
-# مهلة الطلب لـ Hugging Face (بالثواني) - اختياري
-HF_TIMEOUT = int(
-    os.environ.get("HF_TIMEOUT", "120")
-)
-
-
-# حماية القيم
-
+# حماية من القيم غير المناسبة
 MAX_TOKENS = max(
-    512,
-    min(MAX_TOKENS, 16384)
+    256,
+    min(MAX_TOKENS, 8192)
 )
 
 TEMPERATURE = max(
     0.0,
     min(TEMPERATURE, 2.0)
-)
-
-MAX_HISTORY = max(
-    4,
-    min(MAX_HISTORY, 50)
-)
-
-MAX_HISTORY_CHARS = max(
-    2000,
-    min(MAX_HISTORY_CHARS, 100000)
 )
 
 
@@ -86,275 +60,66 @@ MAX_HISTORY_CHARS = max(
 
 client = InferenceClient(
     provider="auto",
-    api_key=HF_TOKEN,
-    timeout=HF_TIMEOUT
+    api_key=HF_TOKEN
 )
 
 
 # =========================================================
-# NORYN Identity
+# NORYN AI SYSTEM PROMPTS
 # =========================================================
 
-BASE_IDENTITY = """
-أنت NORYN AI، مساعد ذكاء اصطناعي متقدم.
+SEARCH_PROMPT = """
+أنت NORYN AI، مساعد متخصص في البحث والمعرفة.
 
-أنت مساعد حقيقي متعدد الاستخدامات، ولست مجرد مولد نصوص.
+مهمتك الأساسية:
+- الإجابة عن أسئلة المستخدم.
+- شرح المعلومات بوضوح.
+- مساعدة المستخدم على فهم المواضيع.
+- ربط السؤال بسياق المحادثة السابقة.
+- الإجابة بالعربية إذا كان المستخدم يكتب بالعربية.
+- الإجابة باللغة التي يستخدمها المستخدم إذا طلب ذلك.
 
-قدراتك الأساسية:
+قواعد مهمة:
+1. لا تخترع مصادر أو روابط أو حقائق غير متأكد منها.
+2. إذا لم تكن متأكدًا من معلومة، قل ذلك بوضوح.
+3. لا تدّعي أنك أجريت بحثًا مباشرًا على الإنترنت إذا لم يتم تزويدك بأداة بحث.
+4. ميّز بين المعلومات المؤكدة والاحتمالات.
+5. اجعل الإجابة منظمة وسهلة القراءة.
+6. استخدم العناوين والقوائم عندما يكون ذلك مفيدًا.
+7. إذا كان السؤال تعليميًا، اشرح الفكرة بطريقة بسيطة.
+8. إذا كان السؤال يتطلب مقارنة، أنشئ مقارنة واضحة.
+9. إذا طلب المستخدم اللغة الإنجليزية، أجب بالإنجليزية.
+10. حافظ على سياق المحادثة السابقة.
+"""
 
-- الإجابة عن الأسئلة.
-- التعليم والشرح.
-- البرمجة.
-- تحليل الأكواد.
-- تصحيح الأخطاء.
-- إنشاء المشاريع.
-- تطوير HTML/CSS/JavaScript.
-- Python وFlask.
-- إنشاء الألعاب.
-- الكتابة.
-- التلخيص.
+
+WRITE_PROMPT = """
+أنت NORYN AI، مساعد متخصص في الكتابة والتحرير.
+
+مهمتك:
+- كتابة المقالات.
+- كتابة القصص.
+- كتابة المنشورات.
+- كتابة الرسائل.
 - إعادة الصياغة.
-- التفكير المنطقي.
-- تحليل المشاكل.
-- التخطيط للمشاريع.
+- التلخيص.
+- تحسين النصوص.
+- اقتراح العناوين.
+- إنشاء الأفكار.
+- تحويل الأفكار إلى نص منظم.
 
-قواعد سياق المحادثة:
-
-- سجل المحادثة (history) يمثل الرسائل السابقة فعليًا بين المستخدم وبينك.
-- إذا كانت رسالة المستخدم الحالية قصيرة أو غامضة (مثل "وأيها أكبر؟" أو "أضف نظام نقاط")
-  فاعتبرها امتدادًا مباشرًا لآخر موضوع أو مشروع تمت مناقشته في history، وليست سؤالًا مستقلًا.
-- إذا طلب المستخدم تعديلًا على كود أو مشروع سابق، ابنِ على الكود الذي أعطيته سابقًا
-  في المحادثة بدل البدء من الصفر، إلا إذا طلب صراحة نسخة جديدة.
-
-قواعد تنسيق الكود (مهمة جدًا - التزم بها دائمًا بدون استثناء):
-
-- أي كود، مهما كانت لغته وطوله، يجب أن يوضع داخل كتلة Markdown واحدة نظيفة
-  محددة اللغة، بالشكل:
-  ```لغة
-  الكود هنا
-  ```
-- لا تكتب أي شرح، جملة عربية، أو رمز زائد داخل كتلة الكود نفسها، إلا كتعليقات
-  برمجية حقيقية داخل الكود (// أو # أو <!-- --> حسب اللغة).
-- لا تخلط نصًا عاديًا مع كود في نفس السطر أو نفس الكتلة.
-- لا تضع رموز تنسيق Markdown (مثل ** أو * أو #) داخل كتلة الكود.
-- كل كتلة كود يجب أن تكون قابلة للنسخ واللصق والتشغيل مباشرة دون أي تعديل
-  أو حذف أو إضافة من المستخدم.
-- تأكد أن الكتلة تبدأ بثلاث علامات ``` متبوعة باسم اللغة، وتنتهي بثلاث علامات
-  ``` فقط، وأنك أغلقت كل كتلة فتحتها.
-- إذا كان الطلب يتضمن عدة ملفات، ضع كل ملف في كتلة كود منفصلة، وقبلها سطر
-  عادي (خارج الكتلة) يوضح اسم الملف بالشكل:
-  **FILE: filename.ext**
-  ```لغة
-  الكود هنا
-  ```
-- أي شرح أو ملاحظات تكتبها قبل الكتلة أو بعدها، أبدًا لا تكتبها داخلها.
-- لا تستخدم جداول أو رموز زخرفية أو خطوط فاصلة داخل كتلة الكود.
-
-قواعد الصدق:
-
-- لا تدّع أنك نفذت أو شغّلت أو اختبرت كودًا فعليًا، لأنه ليس لديك بيئة تنفيذ حقيقية.
-- لا تخترع نتائج تنفيذ أو مخرجات وهمية لأي كود.
-- إذا لم تكن متأكدًا من معلومة، كن صريحًا بشأن ذلك.
-
-اللغة:
-
-إذا كان المستخدم يتحدث بالعربية فأجب بالعربية.
-إذا طلب الإنجليزية فأجب بالإنجليزية.
-إذا طلب لغة معينة فاستخدمها.
-
-ملاحظة: كتلة الكود نفسها (أسماء المتغيرات، الدوال، التعليقات البرمجية) تبقى
-بالإنجليزية دائمًا كما هو معتاد في البرمجة، حتى لو كانت لغة الشرح عربية.
+قواعد مهمة:
+1. افهم المطلوب قبل الكتابة.
+2. إذا طلب المستخدم نصًا جاهزًا، أعطه النص مباشرة.
+3. لا تضف شرحًا طويلًا إذا لم يطلبه المستخدم.
+4. حافظ على اللغة التي يطلبها المستخدم.
+5. إذا كتب المستخدم بالعربية، اكتب بالعربية.
+6. إذا طلب الإنجليزية، اكتب بالإنجليزية.
+7. اجعل النص طبيعيًا ومنظمًا.
+8. لا تكرر الجمل بلا سبب.
+9. عند إعادة الصياغة، حافظ على المعنى الأصلي.
+10. إذا طلب المستخدم أسلوبًا معينًا، التزم به.
 """
-
-
-# =========================================================
-# General Mode
-# =========================================================
-
-GENERAL_PROMPT = BASE_IDENTITY + """
-
-أنت الآن في الوضع العام.
-
-أجب بشكل واضح ومباشر.
-
-عندما يكون السؤال تعليميًا:
-- اشرح الفكرة.
-- أعط أمثلة.
-- اختبر فهم المستخدم عند الحاجة.
-
-عندما يكون السؤال يحتاج خطوات:
-- رتّب الخطوات.
-- لا تقفز إلى النتيجة فقط.
-
-عندما يكون السؤال متابعة لسؤال سابق في history:
-- اربط إجابتك بالموضوع السابق مباشرة دون إعادة شرح كل شيء من البداية.
-
-إذا احتجت لكتابة أي كود أو أمر Terminal ضمن إجابة عامة، طبّق نفس قواعد
-تنسيق الكود المذكورة أعلاه.
-
-لا تجعل الإجابات طويلة بلا حاجة.
-"""
-
-
-# =========================================================
-# Programming Mode
-# =========================================================
-
-PROGRAMMER_PROMPT = BASE_IDENTITY + """
-
-أنت الآن NORYN AI Programmer Engine.
-
-التزم دائمًا بقواعد تنسيق الكود المذكورة أعلاه بدون أي استثناء. أي رد يحتوي
-كودًا خارج كتلة Markdown محددة اللغة، أو كودًا مخلوطًا بنص عربي داخل نفس
-الكتلة، يعتبر خطأ في التنسيق يجب تجنبه تمامًا.
-
-أنت مبرمج ومهندس برمجيات ومراجع أكواد (Code Reviewer) محترف.
-
-مجالات تخصصك:
-
-HTML5, CSS3, JavaScript (Vanilla + Canvas + Games)
-Python, Flask, REST APIs, JSON
-Web Apps, Mobile-first UI
-Debugging, Code Review, Refactoring
-Software architecture, Performance, Security basics
-
-
-== عند إنشاء كود جديد ==
-
-1. افهم المطلوب جيدًا أولًا.
-2. أنشئ كودًا كاملًا وقابلًا للتشغيل مباشرة.
-3. لا تختصر أجزاء مهمة، ولا تستخدم "..." أو "// باقي الكود" بدل كود حقيقي.
-4. أغلق كل الأقواس، الدوال، و HTML tags.
-5. تأكد من صحة JavaScript وPython syntax قبل إعطاء الإجابة.
-6. إذا طلب المستخدم ملفًا واحدًا:
-   ضع HTML + CSS + JavaScript في كتلة كود واحدة فقط (```html ... ```).
-7. إذا طلب مشروعًا متعدد الملفات:
-   اكتب اسم كل ملف بوضوح خارج الكتلة بالشكل **FILE: filename.ext**
-   ثم كتلة كود منفصلة لكل ملف.
-8. اجعل المشاريع Mobile First ما لم يحدد المستخدم غير ذلك.
-9. استخدم Vanilla JavaScript ما لم يطلب مكتبة أخرى، ولا تستخدم React/Vue/Angular من تلقاء نفسك.
-10. الشرح بعد الكود يكون مختصرًا: طريقة التشغيل + أهم ما تغيّر، وخارج كتلة الكود دائمًا.
-
-
-== عند تعديل مشروع سابق تمت مناقشته في history ==
-
-- هذا الطلب هو تعديل، وليس مشروعًا جديدًا.
-- حافظ على: بنية الملفات، أسماء المتغيرات والدوال المهمة، API endpoints، الميزات العاملة.
-- أضف فقط ما طلبه المستخدم (مثل: نظام نقاط، مؤثرات صوتية، تحسين تصميم...).
-- أعد الكود كاملًا بعد التعديل داخل كتلة كود واحدة نظيفة، وليس فقط الجزء
-  المتغير، إلا إذا طلب المستخدم صراحة مقتطفًا فقط.
-
-
-== عند تصحيح كود (Debug) ==
-
-1. حدد المشكلة بدقة.
-2. اشرح سبب الخطأ بإيجاز خارج كتلة الكود.
-3. أعطِ النسخة المصححة كاملة داخل كتلة كود واحدة.
-4. لا تحذف ميزات تعمل أصلًا إلا إذا كان ذلك ضروريًا لحل المشكلة.
-
-
-== عند شرح كود (Explain) ==
-
-- اشرح ماذا يفعل الكود بشكل عام أولًا.
-- ثم اشرح الأجزاء المهمة أو المعقدة.
-- تجنب إعادة كتابة الكود سطرًا بسطر ما لم يُطلب ذلك تحديدًا.
-- أي سطر كود تقتبسه أثناء الشرح ضعه داخل كتلة كود قصيرة منفصلة، لا داخل الجملة.
-
-
-== عند تحسين كود (Refactor / Optimize) ==
-
-- حافظ على نفس السلوك الوظيفي للكود ما لم يُطلب تغييره.
-- وضّح ما الذي تحسّن ولماذا (أداء، قراءة، بنية...) خارج كتلة الكود.
-- أعطِ الكود الكامل بعد التحسين داخل كتلة كود واحدة.
-
-
-== عند إنشاء لعبة ==
-
-تأكد من وجود:
-- نقطة بداية واضحة.
-- حالة للعبة (state).
-- تحكم واضح (لوحة مفاتيح أو لمس).
-- Game Over عند الحاجة.
-- إعادة تشغيل.
-- دعم الهاتف عندما يكون مناسبًا.
-
-
-الأولوية دائمًا: الكود الكامل > صحة الكود > تنسيق نظيف وقابل للنسخ > سهولة التشغيل > الشرح.
-"""
-
-
-# =========================================================
-# Learning Mode
-# =========================================================
-
-LEARN_PROMPT = BASE_IDENTITY + """
-
-أنت الآن مدرس ذكي وصبور.
-
-عند شرح موضوع جديد استخدم هذا الترتيب:
-
-- تعريف مبسط.
-- الفكرة الأساسية.
-- مثال واقعي أو عملي.
-- كيفية التطبيق.
-- سؤال قصير للتأكد من الفهم (عند الحاجة).
-
-إذا كان سؤال المستخدم متابعة لموضوع سابق في history (مثل "ما أنواعها؟" بعد شرح موضوع):
-- تابع نفس الموضوع مباشرة دون سؤال المستخدم "أي موضوع تقصد؟".
-
-إذا أخطأ الطالب في إجابة:
-- لا تسخر منه ولا تكن قاسيًا.
-- صحح الخطأ بلطف واشرح السبب بوضوح.
-
-إذا طلب درسًا كاملًا:
-- نظّم الدرس بعناوين واضحة ومراحل متسلسلة.
-
-إذا طلب اختبارًا أو تمارين:
-- أنشئ أسئلة مناسبة لمستوى الموضوع.
-- بعد إجابة المستخدم، صحح الإجابات واشرح الصواب والخطأ.
-
-إذا كان الدرس يتضمن كودًا (مثلًا تعليم برمجة)، طبّق نفس قواعد تنسيق الكود
-المذكورة أعلاه.
-
-تذكر موضوع الدرس الحالي طوال المحادثة واستخدمه لربط الأسئلة التالية.
-"""
-
-
-# =========================================================
-# Writing Mode
-# =========================================================
-
-WRITE_PROMPT = BASE_IDENTITY + """
-
-أنت الآن مساعد كتابة محترف.
-
-ساعد في:
-
-- القصص والمقالات.
-- توليد الأفكار.
-- التلخيص وإعادة الصياغة.
-- الرسائل والمحتوى التعليمي.
-- الوصف الإبداعي.
-
-إذا طلب المستخدم نصًا جاهزًا، أعطه النص مباشرة دون مقدمات طويلة.
-
-إذا كان الطلب تعديلًا على نص سابق في history (مثل "اجعله أقصر" أو "غيّر الأسلوب"):
-- عدّل النص السابق نفسه بدل كتابة نص جديد مختلف تمامًا.
-
-حافظ على الأسلوب والنبرة التي طلبها المستخدم.
-"""
-
-
-# =========================================================
-# Modes
-# =========================================================
-
-PROMPTS = {
-    "general": GENERAL_PROMPT,
-    "code": PROGRAMMER_PROMPT,
-    "learn": LEARN_PROMPT,
-    "write": WRITE_PROMPT,
-}
 
 
 # =========================================================
@@ -371,277 +136,72 @@ def clean_text(value, default=""):
     return str(value).strip()
 
 
-def safe_mode(mode):
+def get_system_prompt(mode):
     """
-    التأكد من أن الوضع صالح.
+    اختيار شخصية NORYN حسب الوضع.
     """
+
     mode = clean_text(
         mode,
-        "general"
+        "search"
     ).lower()
 
-    if mode not in PROMPTS:
-        return "general"
+    if mode == "write":
+        return WRITE_PROMPT
 
-    return mode
+    return SEARCH_PROMPT
 
 
-def get_mode_prompt(mode):
+def normalize_history(history):
     """
-    إرجاع System Prompt المناسب.
-    """
-    return PROMPTS.get(
-        safe_mode(mode),
-        PROMPTS["general"]
-    )
-
-
-# =========================================================
-# Request Type Detection
-# =========================================================
-#
-# طبقة اكتشاف نوع الطلب: عام / برمجة / تعلم / كتابة
-# + نوع فرعي عند البرمجة: إنشاء / تصحيح / شرح / تحسين / مشروع كبير
-#
-
-DEBUG_KEYWORDS = [
-    "صحح", "اصلح", "إصلاح", "debug", "fix", "error", "خطأ",
-    "لا يعمل", "مايعملش", "not working", "crash", "traceback",
-    "exception", "bug"
-]
-
-EXPLAIN_KEYWORDS = [
-    "اشرح", "وضح", "explain", "شرح", "ماذا يفعل", "كيف يعمل",
-    "what does this do", "how does this work"
-]
-
-IMPROVE_KEYWORDS = [
-    "حسّن", "حسن", "طوّر", "طور", "refactor", "optimize", "تحسين",
-    "أعد هيكلة", "clean up", "improve"
-]
-
-PROGRAMMING_KEYWORDS = [
-    "كود", "برمج", "برمجة", "برنامج", "مشروع", "لعبة",
-    "html", "css", "javascript", "js", "python", "flask",
-    "api", "json", "sql", "debug", "debugging", "خطأ",
-    "error", "تصحيح", "صحح", "اصلح", "إصلاح", "website",
-    "web app", "function", "class", "code", "coding"
-]
-
-PROJECT_KEYWORDS = [
-    "مشروع كامل", "تطبيق كامل", "موقع كامل", "لعبة كاملة",
-    "ابني لي", "أنشئ لي مشروع", "build a project", "full project",
-    "complete project", "full website", "complete website",
-    "complete app"
-]
-
-
-def _contains_any(text, keywords):
-    return any(keyword.lower() in text for keyword in keywords)
-
-
-def is_programming_request(message):
-    text = message.lower()
-    return _contains_any(text, PROGRAMMING_KEYWORDS)
-
-
-def is_large_project(message):
-    text = message.lower()
-    return _contains_any(text, PROJECT_KEYWORDS)
-
-
-def is_debug_request(message):
-    text = message.lower()
-    return _contains_any(text, DEBUG_KEYWORDS)
-
-
-def is_explain_request(message):
-    text = message.lower()
-    return _contains_any(text, EXPLAIN_KEYWORDS)
-
-
-def is_improve_request(message):
-    text = message.lower()
-    return _contains_any(text, IMPROVE_KEYWORDS)
-
-
-def detect_request_type(message, mode):
-    """
-    يحدد نوع الطلب لأغراض الـ instructions الداخلية فقط.
-    لا يُرسل للمستخدم، ولا يغيّر شكل استجابة API.
-    """
-
-    programming = is_programming_request(message)
-
-    if not programming:
-        return mode  # general / learn / write كما هي
-
-    if is_large_project(message):
-        return "code_project"
-
-    if is_debug_request(message):
-        return "code_debug"
-
-    if is_explain_request(message):
-        return "code_explain"
-
-    if is_improve_request(message):
-        return "code_improve"
-
-    return "code_create"
-
-
-# =========================================================
-# Build Programming Instructions
-# =========================================================
-
-def build_programming_instruction(message, mode, request_type):
-    """
-    إضافة تعليمات ذكية إضافية حسب نوع الطلب.
-    """
-
-    if not is_programming_request(message):
-        return ""
-
-    instruction = """
-
-هذه رسالة برمجية. نفّذ مراجعة داخلية قبل إرسال الإجابة (لا تعرضها للمستخدم):
-
-[1] هل فهمت المطلوب بدقة؟
-[2] هل الطلب تعديل على كود/مشروع سابق في history، أم طلب جديد؟
-[3] هل الكود كامل بلا أجزاء ناقصة أو "..."؟
-[4] هل الأقواس و HTML tags مغلقة؟
-[5] هل JavaScript/Python syntax صحيح؟
-[6] هل أسماء العناصر والدوال متطابقة في كل مكان استُخدمت فيه؟
-[7] هل الكود قابل للتشغيل مباشرة؟
-[8] هل الكود موضوع بالكامل داخل كتلة Markdown واحدة محددة اللغة، بدون أي
-    نص أو رمز زائد مخلوط داخلها؟
-"""
-
-    if request_type == "code_project":
-        instruction += """
-
-هذا يبدو مشروعًا كبيرًا.
-الأولوية القصوى: اكتمال المشروع.
-
-إذا كان المطلوب ملفًا واحدًا: أعط ملفًا واحدًا كاملًا داخل كتلة كود واحدة.
-إذا كان المطلوب عدة ملفات: رتّب الإجابة بالشكل:
-**FILE: filename.ext**
-```لغة
-الكود الكامل لهذا الملف
-```
-
-لا تضع أجزاء وهمية، ولا تستخدم "..."، ولا تقل "أكمل بنفس الطريقة".
-"""
-
-    elif request_type == "code_debug":
-        instruction += """
-
-هذا طلب تصحيح كود (Debug).
-اتبع الترتيب: حدد المشكلة -> اشرح السبب بإيجاز خارج كتلة الكود -> أعطِ
-الكود المصحح كاملًا داخل كتلة كود واحدة.
-لا تحذف ميزات تعمل أصلًا إلا إذا كان ذلك ضروريًا لحل المشكلة تحديدًا.
-"""
-
-    elif request_type == "code_explain":
-        instruction += """
-
-هذا طلب شرح كود (Explain).
-ركّز على الشرح الواضح خارج كتلة الكود، ولا تعد كتابة الكود كاملًا إلا إذا
-طُلب ذلك صراحة.
-"""
-
-    elif request_type == "code_improve":
-        instruction += """
-
-هذا طلب تحسين/إعادة هيكلة كود (Refactor/Optimize).
-حافظ على نفس السلوك الوظيفي ما لم يُطلب تغييره، ووضّح باختصار خارج كتلة
-الكود ما الذي تحسّن.
-أعطِ الكود الكامل بعد التحسين داخل كتلة كود واحدة.
-"""
-
-    else:
-        instruction += """
-
-إذا وُجد كود أو مشروع سابق مرتبط بهذا الطلب في history، ابنِ عليه بدل
-البدء من الصفر.
-"""
-
-    instruction += """
-
-أنت في وضع البرمجة: كن عمليًا. إذا وُجد أكثر من حل، اختر الأبسط والأكثر
-استقرارًا ما لم يطلب المستخدم شيئًا آخر تحديدًا.
-
-تذكير أخير: أي كود في ردك يجب أن يكون داخل كتلة Markdown واحدة نظيفة
-(```لغة ... ```) بدون أي خلط بنص أو رموز زائدة.
-"""
-
-    return instruction
-
-
-# =========================================================
-# History Normalization
-# =========================================================
-
-def normalize_history(history, current_message):
-    """
-    تحويل history القادمة من JavaScript إلى رسائل يفهمها النموذج،
-    مع:
-    - تجاهل أي عنصر غير صالح.
-    - عدم تكرار الرسالة الحالية إذا كانت آخر عنصر في history هو نفسها.
-    - تقييد عدد الرسائل (MAX_HISTORY).
-    - تقييد إجمالي عدد الأحرف (MAX_HISTORY_CHARS) بإسقاط الأقدم أولًا،
-      مع الحفاظ دائمًا على أحدث الرسائل (أهم سياق للمتابعة).
+    تحويل تاريخ المحادثة القادم من JavaScript
+    إلى صيغة messages التي يفهمها النموذج.
     """
 
     if not isinstance(history, list):
         return []
 
-    trimmed_by_count = history[-MAX_HISTORY:]
+    messages = []
 
-    parsed = []
+    # نأخذ آخر 20 رسالة فقط
+    history = history[-20:]
 
-    for item in trimmed_by_count:
+    for item in history:
 
         if not isinstance(item, dict):
             continue
 
-        msg_type = clean_text(item.get("type")).lower()
-        text = clean_text(item.get("text"))
+        message_type = clean_text(
+            item.get("type")
+        )
+
+        text = clean_text(
+            item.get("text")
+        )
 
         if not text:
             continue
 
-        if msg_type == "user":
-            parsed.append({"role": "user", "content": text})
-        elif msg_type == "ai":
-            parsed.append({"role": "assistant", "content": text})
+        if message_type == "user":
 
-    # منع تكرار الرسالة الحالية إذا كانت الواجهة أرسلتها مسبقًا ضمن history
-    if (
-        parsed
-        and parsed[-1]["role"] == "user"
-        and parsed[-1]["content"] == current_message
-    ):
-        parsed.pop()
+            messages.append({
+                "role": "user",
+                "content": text
+            })
 
-    # تقييد إجمالي الأحرف: نحتفظ بأحدث الرسائل ونسقط الأقدم عند الحاجة
-    total_chars = sum(len(item["content"]) for item in parsed)
+        elif message_type == "ai":
 
-    while parsed and total_chars > MAX_HISTORY_CHARS:
-        removed = parsed.pop(0)
-        total_chars -= len(removed["content"])
+            messages.append({
+                "role": "assistant",
+                "content": text
+            })
 
-    return parsed
+    return messages
 
-
-# =========================================================
-# Extract Reply
-# =========================================================
 
 def extract_reply(response):
     """
-    استخراج إجابة النموذج.
+    استخراج نص الإجابة من Hugging Face.
     """
 
     if not response:
@@ -649,63 +209,42 @@ def extract_reply(response):
 
     try:
 
-        choices = getattr(response, "choices", None)
+        choices = getattr(
+            response,
+            "choices",
+            None
+        )
 
         if not choices:
             return ""
 
         first = choices[0]
 
-        message = getattr(first, "message", None)
+        message = getattr(
+            first,
+            "message",
+            None
+        )
 
         if message is None:
             return ""
 
-        content = getattr(message, "content", None)
+        content = getattr(
+            message,
+            "content",
+            None
+        )
 
         if content is None:
             return ""
 
-        return str(content).strip()
+        return str(
+            content
+        ).strip()
 
-    except Exception as error:
-
-        print(
-            "NORYN extraction error:",
-            repr(error),
-            flush=True
-        )
+    except Exception:
 
         return ""
-
-
-# =========================================================
-# Clean Model Reply
-# =========================================================
-
-def clean_model_reply(reply):
-    """
-    تنظيف بسيط دون تغيير محتوى الكود:
-    - تقليل الأسطر الفارغة الزائدة جدًا.
-    - إغلاق كتلة كود منسية إذا كان عدد ``` فرديًا (حماية إضافية فقط،
-      التنسيق الأساسي مسؤولية system prompt).
-    """
-
-    if not reply:
-        return ""
-
-    reply = reply.strip()
-
-    reply = re.sub(
-        r"\n{5,}",
-        "\n\n\n",
-        reply
-    )
-
-    if reply.count("```") % 2 != 0:
-        reply += "\n```"
-
-    return reply
 
 
 # =========================================================
@@ -714,7 +253,10 @@ def clean_model_reply(reply):
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+
+    return render_template(
+        "index.html"
+    )
 
 
 # =========================================================
@@ -729,30 +271,12 @@ def health():
         "ai": bool(HF_TOKEN),
         "model": MODEL,
         "service": "NORYN AI",
-        "version": "8.1",
-        "engine": "programmer",
-        "max_tokens": MAX_TOKENS,
-        "history_limit": MAX_HISTORY,
-        "history_char_limit": MAX_HISTORY_CHARS
-    })
-
-
-# =========================================================
-# API Information
-# =========================================================
-
-@app.route("/api")
-def api_info():
-
-    return jsonify({
-        "ok": True,
-        "name": "NORYN AI",
-        "version": "8.1",
-        "endpoints": [
-            "/",
-            "/health",
-            "/api/chat"
-        ]
+        "version": "7",
+        "modes": [
+            "search",
+            "write"
+        ],
+        "max_tokens": MAX_TOKENS
     })
 
 
@@ -760,23 +284,48 @@ def api_info():
 # Chat API
 # =========================================================
 
-@app.route("/api/chat", methods=["POST"])
+@app.route(
+    "/api/chat",
+    methods=["POST"]
+)
 def chat():
 
     # -----------------------------------------------------
     # Read JSON
     # -----------------------------------------------------
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(
+        silent=True
+    ) or {}
 
-    message = clean_text(data.get("message"))
 
-    mode = safe_mode(data.get("mode", "general"))
+    message = clean_text(
+        data.get("message")
+    )
 
-    # ملاحظة: أي "system" يُرسل من العميل لا يُستخدم كـ system حقيقي،
-    # فقط mode الخاص بالخادم هو الذي يحدد التعليمات.
 
-    raw_history = data.get("history", [])
+    mode = clean_text(
+        data.get("mode"),
+        "search"
+    ).lower()
+
+
+    history = data.get(
+        "history",
+        []
+    )
+
+
+    # -----------------------------------------------------
+    # Validate mode
+    # -----------------------------------------------------
+
+    if mode not in {
+        "search",
+        "write"
+    }:
+
+        mode = "search"
 
 
     # -----------------------------------------------------
@@ -787,187 +336,246 @@ def chat():
 
         return jsonify({
             "ok": False,
-            "error": "اكتب رسالة أولًا."
+            "error":
+                "اكتب رسالتك أولًا."
         }), 400
 
 
     # -----------------------------------------------------
-    # Validate token
+    # Validate HF token
     # -----------------------------------------------------
 
     if not HF_TOKEN:
 
         return jsonify({
             "ok": False,
-            "error": (
+            "error":
                 "HF_TOKEN غير موجود في إعدادات Render."
-            )
         }), 500
 
 
     # -----------------------------------------------------
-    # Message size
+    # Limit input
     # -----------------------------------------------------
 
-    if len(message) > MAX_MESSAGE_LENGTH:
+    if len(message) > 30000:
 
         return jsonify({
             "ok": False,
-            "error": (
-                "الرسالة طويلة جدًا. حاول تقليل حجمها."
-            )
+            "error":
+                "الرسالة طويلة جدًا."
         }), 413
-
-
-    # -----------------------------------------------------
-    # History
-    # -----------------------------------------------------
-
-    history = normalize_history(raw_history, message)
-
-
-    # -----------------------------------------------------
-    # Request type detection (داخلي فقط)
-    # -----------------------------------------------------
-
-    request_type = detect_request_type(message, mode)
 
 
     # -----------------------------------------------------
     # System Prompt
     # -----------------------------------------------------
 
-    system_prompt = get_mode_prompt(mode)
-
-    programming_instruction = build_programming_instruction(
-        message,
-        mode,
-        request_type
+    system_prompt = get_system_prompt(
+        mode
     )
-
-    if programming_instruction:
-        system_prompt += "\n\n" + programming_instruction
 
 
     # -----------------------------------------------------
-    # Build Messages
+    # Normalize conversation
+    # -----------------------------------------------------
+
+    conversation =
+        normalize_history(
+            history
+        )
+
+
+    # -----------------------------------------------------
+    # Prevent duplicate current message
+    # -----------------------------------------------------
+
+    if conversation:
+
+        last = conversation[-1]
+
+        if (
+            last.get("role") == "user"
+            and
+            last.get("content") == message
+        ):
+
+            conversation = conversation[:-1]
+
+
+    # -----------------------------------------------------
+    # Build final messages
     # -----------------------------------------------------
 
     messages = [
-        {"role": "system", "content": system_prompt}
+
+        {
+            "role": "system",
+            "content": system_prompt
+        }
+
     ]
 
-    messages.extend(history)
+
+    messages.extend(
+        conversation
+    )
+
 
     messages.append({
+
         "role": "user",
+
         "content": message
+
     })
 
 
     # -----------------------------------------------------
-    # Debug Logging (بدون أسرار)
+    # Special instructions
     # -----------------------------------------------------
 
-    print("\n========== NORYN REQUEST ==========", flush=True)
-    print("Mode:", mode, flush=True)
-    print("Request type:", request_type, flush=True)
-    print("Model:", MODEL, flush=True)
-    print("History messages sent:", len(history), flush=True)
-    print("Message length:", len(message), flush=True)
-    print("====================================\n", flush=True)
+    if mode == "search":
+
+        messages.append({
+
+            "role": "system",
+
+            "content": """
+أجب عن السؤال الحالي اعتمادًا على
+المعلومات التي تعرفها وسياق المحادثة.
+
+إذا كان السؤال متابعة لسؤال سابق،
+استخدم السياق السابق لفهم المقصود.
+
+لا تدّعي إجراء بحث مباشر على الإنترنت
+ما لم تكن لديك أداة بحث فعلية.
+"""
+        })
 
 
-    # =====================================================
-    # Call Hugging Face
-    # =====================================================
+    elif mode == "write":
 
-    start_time = time.time()
+        messages.append({
 
-    try:
+            "role": "system",
 
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE
-        )
+            "content": """
+ركز على تنفيذ طلب الكتابة الحالي.
 
-        elapsed = round(time.time() - start_time, 2)
+إذا طلب المستخدم نصًا جاهزًا:
+ابدأ بالنص مباشرة.
 
-        reply = extract_reply(response)
+إذا طلب إعادة صياغة:
+حافظ على المعنى.
 
-        if not reply:
+إذا طلب قصة:
+اجعلها مترابطة ولها بداية ووسط ونهاية.
 
-            print(
-                "NORYN ERROR: Empty response from model",
-                "| elapsed:", elapsed,
-                flush=True
-            )
-
-            return jsonify({
-                "ok": False,
-                "error": "النموذج لم يُرجع إجابة."
-            }), 502
-
-        reply = clean_model_reply(reply)
-
-        print(
-            "NORYN OK | elapsed:", elapsed,
-            "s | reply length:", len(reply),
-            flush=True
-        )
-
-        return jsonify({
-            "ok": True,
-            "reply": reply,
-            "model": MODEL,
-            "mode": mode,
-            "version": "8.1",
-            "programmer": is_programming_request(message)
+إذا طلب مقالًا:
+نظمه إلى مقدمة وفقرات وخاتمة
+عندما يكون ذلك مناسبًا.
+"""
         })
 
 
     # -----------------------------------------------------
-    # Hugging Face specific errors (rate limit, model busy...)
+    # Hugging Face Request
     # -----------------------------------------------------
 
-    except HfHubHTTPError as error:
+    try:
 
-        print(
-            "\n===== NORYN HF HTTP ERROR =====",
-            "\nError:", repr(error),
-            "\n================================\n",
-            flush=True
+        response = (
+            client.chat.completions.create(
+
+                model=MODEL,
+
+                messages=messages,
+
+                max_tokens=MAX_TOKENS,
+
+                temperature=TEMPERATURE
+            )
         )
 
-        return jsonify({
-            "ok": False,
-            "error": (
-                "تعذر الاتصال بنموذج Hugging Face حاليًا "
-                "(قد يكون النموذج مشغولًا أو هناك مشكلة في الاتصال). "
-                "حاول مرة أخرى بعد قليل."
+
+        # -------------------------------------------------
+        # Extract reply
+        # -------------------------------------------------
+
+        reply = extract_reply(
+            response
+        )
+
+
+        if not reply:
+
+            print(
+                "NORYN ERROR: Empty response",
+                flush=True
             )
-        }), 502
+
+            return jsonify({
+
+                "ok": False,
+
+                "error":
+                    "النموذج لم يُرجع إجابة."
+
+            }), 502
+
+
+        # -------------------------------------------------
+        # Success
+        # -------------------------------------------------
+
+        return jsonify({
+
+            "ok": True,
+
+            "reply": reply,
+
+            "model": MODEL,
+
+            "mode": mode,
+
+            "version": "7"
+
+        })
 
 
     # -----------------------------------------------------
-    # Any other unexpected error
+    # Error
     # -----------------------------------------------------
 
     except Exception as error:
 
-        print("\n========== NORYN ERROR ==========", flush=True)
-        print("Error:", repr(error), flush=True)
+        print(
+            "\n========== NORYN AI ERROR ==========",
+            flush=True
+        )
+
+        print(
+            repr(error),
+            flush=True
+        )
+
         traceback.print_exc()
-        print("================================\n", flush=True)
+
+        print(
+            "====================================\n",
+            flush=True
+        )
+
 
         return jsonify({
+
             "ok": False,
-            "error": (
+
+            "error":
                 "تعذر الحصول على إجابة من NORYN AI الآن. "
                 "تحقق من Render Logs."
-            )
+
         }), 502
 
 
@@ -979,8 +587,12 @@ def chat():
 def not_found(error):
 
     return jsonify({
+
         "ok": False,
-        "error": "المسار غير موجود."
+
+        "error":
+            "المسار غير موجود."
+
     }), 404
 
 
@@ -992,8 +604,12 @@ def not_found(error):
 def method_not_allowed(error):
 
     return jsonify({
+
         "ok": False,
-        "error": "طريقة الطلب غير مسموحة."
+
+        "error":
+            "طريقة الطلب غير مسموحة."
+
     }), 405
 
 
@@ -1004,21 +620,34 @@ def method_not_allowed(error):
 @app.errorhandler(500)
 def internal_error(error):
 
-    print("NORYN INTERNAL ERROR:", repr(error), flush=True)
+    print(
+        "NORYN INTERNAL ERROR:",
+        repr(error),
+        flush=True
+    )
 
     return jsonify({
+
         "ok": False,
-        "error": "حدث خطأ داخلي في الخادم."
+
+        "error":
+            "حدث خطأ داخلي في الخادم."
+
     }), 500
 
 
 # =========================================================
-# Run
+# Local Development
 # =========================================================
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(
+        os.environ.get(
+            "PORT",
+            "8000"
+        )
+    )
 
     app.run(
         host="0.0.0.0",
