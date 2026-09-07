@@ -1,10 +1,5 @@
-```python
 import os
-import json
-import ast
-import operator
 import traceback
-from datetime import datetime, timezone
 
 from flask import Flask, render_template, request, jsonify
 from huggingface_hub import InferenceClient
@@ -12,21 +7,20 @@ from huggingface_hub import InferenceClient
 
 # =========================================================
 # NORYN AI v7
-# =========================================================
-#
 # Flask + Hugging Face InferenceClient
 #
 # Features:
 # - Conversation memory
-# - Smart context
-# - General / Code / Learn / Write
-# - Tool calling
-# - Safe calculator
-# - Current date/time tool
-# - Better code generation
-# - Arabic / English support
-# - Automatic tool selection
-# - Robust error handling
+# - Context-aware conversations
+# - General / Code / Learn / Write modes
+# - Better Arabic behavior
+# - Better English behavior
+# - Long-code support
+# - Context limiting
+# - Automatic code-request detection
+# - Safe server-side system prompts
+# - Detailed error handling
+# - Health endpoint
 # =========================================================
 
 
@@ -37,11 +31,7 @@ app = Flask(__name__)
 # Environment
 # =========================================================
 
-HF_TOKEN = os.environ.get(
-    "HF_TOKEN",
-    ""
-).strip()
-
+HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 
 MODEL = os.environ.get(
     "HF_MODEL",
@@ -49,73 +39,63 @@ MODEL = os.environ.get(
 ).strip()
 
 
-MAX_TOKENS = int(
-    os.environ.get(
-        "HF_MAX_TOKENS",
-        "8192"
+# الحد الأقصى للتوكنات الناتجة
+try:
+    MAX_TOKENS = int(
+        os.environ.get("HF_MAX_TOKENS", "8192")
     )
-)
+except (TypeError, ValueError):
+    MAX_TOKENS = 8192
 
 
-TEMPERATURE = float(
-    os.environ.get(
-        "HF_TEMPERATURE",
-        "0.7"
+# درجة الإبداع
+try:
+    TEMPERATURE = float(
+        os.environ.get("HF_TEMPERATURE", "0.7")
     )
-)
+except (TypeError, ValueError):
+    TEMPERATURE = 0.7
 
 
-MAX_HISTORY_MESSAGES = int(
-    os.environ.get(
-        "NORYN_MAX_HISTORY",
-        "30"
+# عدد الأحرف الأقصى التي نرسلها من سجل المحادثة
+try:
+    MAX_HISTORY_CHARS = int(
+        os.environ.get("HF_MAX_HISTORY_CHARS", "50000")
     )
-)
+except (TypeError, ValueError):
+    MAX_HISTORY_CHARS = 50000
 
 
-MAX_MESSAGE_LENGTH = int(
-    os.environ.get(
-        "NORYN_MAX_MESSAGE_LENGTH",
-        "30000"
+# عدد الرسائل الأخيرة التي يسمح بها السياق
+try:
+    MAX_HISTORY_MESSAGES = int(
+        os.environ.get("HF_MAX_HISTORY_MESSAGES", "30")
     )
-)
+except (TypeError, ValueError):
+    MAX_HISTORY_MESSAGES = 30
 
 
-MAX_TOOL_ROUNDS = int(
-    os.environ.get(
-        "NORYN_MAX_TOOL_ROUNDS",
-        "4"
-    )
-)
-
-
-# Safety limits
-MAX_TOKENS = max(
-    512,
-    min(MAX_TOKENS, 16384)
-)
-
+# حماية القيم
+MAX_TOKENS = max(256, min(MAX_TOKENS, 16384))
 
 TEMPERATURE = max(
     0.0,
     min(TEMPERATURE, 2.0)
 )
 
+MAX_HISTORY_CHARS = max(
+    4000,
+    min(MAX_HISTORY_CHARS, 120000)
+)
 
 MAX_HISTORY_MESSAGES = max(
     4,
-    min(MAX_HISTORY_MESSAGES, 60)
-)
-
-
-MAX_TOOL_ROUNDS = max(
-    1,
-    min(MAX_TOOL_ROUNDS, 6)
+    min(MAX_HISTORY_MESSAGES, 100)
 )
 
 
 # =========================================================
-# Hugging Face
+# Hugging Face Client
 # =========================================================
 
 client = InferenceClient(
@@ -125,60 +105,94 @@ client = InferenceClient(
 
 
 # =========================================================
-# NORYN PERSONALITY
+# NORYN Personality
 # =========================================================
 
 BASE_PERSONALITY = """
 أنت NORYN AI، مساعد ذكاء اصطناعي ذكي ومتعدد الاستخدامات.
 
-هدفك ليس مجرد الإجابة، بل فهم ما يريده المستخدم
-وتقديم أفضل مساعدة ممكنة.
+أنت مساعد:
+- واضح
+- دقيق
+- مفيد
+- متفاعل
+- منظم
+- صبور
+- قادر على متابعة سياق المحادثة
 
-القواعد الأساسية:
+افهم السؤال الحالي بالاعتماد على الرسائل السابقة عندما تكون ذات صلة.
 
-1. افهم السؤال قبل الإجابة.
-2. استخدم سياق المحادثة السابقة.
-3. إذا كان السؤال تابعًا لسؤال سابق، اربطه به.
-4. لا تخترع معلومات أو نتائج.
-5. إذا كنت غير متأكد، قل ذلك بوضوح.
-6. إذا كانت هناك أداة مناسبة ومطلوبة، استخدمها.
-7. لا تقل إنك استخدمت أداة إذا لم تستخدمها فعليًا.
-8. لا تدّع تنفيذ شيء لم تنفذه.
-9. أجب باللغة التي يستخدمها المستخدم.
-10. إذا طلب المستخدم لغة محددة، استخدمها.
-11. اجعل الإجابة منظمة وسهلة القراءة.
-12. لا تطل بلا فائدة.
-13. إذا احتاج الموضوع شرحًا، استخدم العناوين والنقاط والأمثلة.
-14. حافظ على شخصية NORYN الهادئة والمفيدة.
+إذا قال المستخدم:
+"اشرح الثانية"
+أو:
+"ماذا تقصد؟"
+أو:
+"أعدها"
+أو:
+"تابع"
+أو:
+"حولها إلى الإنجليزية"
+
+فلا تتعامل مع العبارة كأنها سؤال مستقل؛ استخدم سياق المحادثة السابق لفهم المقصود.
+
+لا تسأل المستخدم عن معلومات سبق أن ذكرها بوضوح في نفس المحادثة.
+
+إذا كانت الرسالة مرتبطة بموضوع سابق، تابع الموضوع بدل البدء من الصفر.
+
+إذا غيّر المستخدم اللغة، استجب باللغة التي طلبها.
+
+إذا كتب المستخدم بالعربية، استخدم العربية الواضحة.
+
+إذا طلب الإنجليزية، أجب بالإنجليزية.
+
+إذا طلب لغة أخرى، حاول الإجابة بها إذا كنت قادرًا.
+
+لا تدّعي تنفيذ شيء لم تنفذه.
+
+لا تخترع نتائج أو معلومات غير معروفة.
+
+إذا كانت المعلومة غير مؤكدة، وضح ذلك.
+
+اجعل الإجابة مناسبة للسؤال:
+- سؤال بسيط = إجابة بسيطة.
+- سؤال تعليمي = شرح منظم.
+- سؤال برمجي = حل عملي وكود واضح.
+- طلب كتابة = نص جاهز.
+- طلب تحليل = تحليل منظم.
 """
 
 
 # =========================================================
-# MODES
+# Mode Prompts
 # =========================================================
 
-MODE_PROMPTS = {
+PROMPTS = {
 
-    "general": """
-أنت في الوضع العام.
+    "general": BASE_PERSONALITY + """
+
+أنت الآن في الوضع العام.
 
 ساعد المستخدم في:
 - الأسئلة العامة
 - العلوم
-- المعرفة
+- التاريخ
+- الجغرافيا
+- التكنولوجيا
 - الأفكار
 - التخطيط
-- الدراسة
-- التقنية
-- الحياة اليومية
+- المعلومات اليومية
+- التعلم
+- البرمجة عند الحاجة
 
-كن واضحًا ودقيقًا.
+حافظ على أسلوب طبيعي يشبه المحادثة مع مساعد ذكي.
 """,
 
-    "code": """
-أنت في وضع البرمجة.
 
-أنت مطور محترف متخصص في:
+    "code": BASE_PERSONALITY + """
+
+أنت الآن NORYN AI في وضع البرمجة.
+
+أنت متخصص في:
 
 HTML5
 CSS3
@@ -187,508 +201,200 @@ Python
 Flask
 Canvas
 Web Apps
-الألعاب
+Mobile-first
 واجهات المستخدم
+الألعاب
 تصحيح الأخطاء
-تحسين الأداء
+تحسين الأكواد
+شرح الأكواد
+تصميم المشاريع
 
-عند كتابة كود:
+عند إنشاء كود:
 
-- أعطِ كودًا كاملًا قدر الإمكان.
-- لا تستخدم ... بدل أجزاء الكود.
-- لا تقطع الكود في المنتصف.
-- أغلق جميع الأقواس والوسوم.
-- أكمل جميع الدوال.
-- راجع الكود قبل إرساله.
-- إذا طلب المستخدم ملفًا واحدًا، اجعله ملفًا واحدًا.
-- إذا لم يطلب إطار عمل، استخدم JavaScript عاديًا.
-- اجعل التصميم Mobile First عندما يكون ذلك مناسبًا.
-- بعد الكود، اشرح التشغيل باختصار.
-- إذا طلب المستخدم إصلاح كود سابق، حافظ على الأجزاء التي تعمل.
+1. افهم المطلوب.
+2. قدم كودًا كاملًا قدر الإمكان.
+3. لا تقطع الكود.
+4. لا تستخدم "..." بدل أجزاء من الكود.
+5. لا تكتب "أكمل هنا".
+6. أغلق جميع الأقواس.
+7. أغلق جميع الدوال.
+8. أغلق جميع HTML tags.
+9. إذا طلب المستخدم ملف HTML واحدًا، ضع HTML وCSS وJavaScript في ملف واحد.
+10. إذا طلب لعبة HTML، اجعلها قابلة للتشغيل مباشرة.
+11. اجعل المشاريع مناسبة للهاتف إذا لم يحدد المستخدم غير ذلك.
+12. استخدم JavaScript عاديًا ما لم يطلب المستخدم إطارًا معينًا.
+13. لا تضف مكتبات خارجية دون حاجة.
+14. ضع الكود داخل code fence مناسب.
+15. بعد الكود اشرح طريقة التشغيل باختصار.
+16. لا تجعل الشرح الطويل يستهلك مساحة الكود.
+17. راجع الكود منطقيًا قبل إرساله.
+
+الأولوية:
+
+الكود الكامل والقابل للتشغيل
+ثم
+الشرح.
 """,
 
-    "learn": """
-أنت مدرس ذكي.
 
-عند التعليم:
+    "learn": BASE_PERSONALITY + """
 
-- ابدأ من الأساسيات.
-- اشرح خطوة بخطوة.
-- استخدم أمثلة بسيطة.
-- لا تفترض أن المستخدم خبير.
-- اسأل أسئلة قصيرة عند الحاجة.
-- صحح إجابة الطالب.
-- إذا طلب المستخدم اختبارًا، أنشئ اختبارًا مناسبًا.
-- إذا أخطأ المستخدم، اشرح الخطأ ثم أعطه فرصة للمحاولة.
-- اربط الأسئلة الجديدة بالدرس السابق.
+أنت الآن مدرس ذكي.
+
+مهمتك ليست فقط إعطاء الإجابة، بل مساعدة الطالب على الفهم.
+
+عند شرح درس:
+
+1. ابدأ بالمفهوم الأساسي.
+2. استخدم لغة بسيطة.
+3. قسم الشرح إلى نقاط.
+4. أعط أمثلة.
+5. وضح الأخطاء الشائعة.
+6. استخدم أسئلة قصيرة للتأكد من الفهم عند الحاجة.
+7. إذا طلب المستخدم اختبارًا، أنشئ اختبارًا مناسبًا.
+8. إذا أجاب المستخدم عن سؤال، صحح إجابته واشرح السبب.
+9. إذا أخطأ، لا تكتف بقول "خطأ"، بل وضح أين الخطأ.
+10. إذا طلب إعادة الشرح، غيّر طريقة الشرح بدل تكرار النص نفسه.
+
+تعامل مع المستخدم كطالب يتعلم معك خطوة بخطوة.
 """,
 
-    "write": """
-أنت مساعد متخصص في الكتابة.
+
+    "write": BASE_PERSONALITY + """
+
+أنت الآن مساعد متخصص في الكتابة.
 
 ساعد في:
-
 - القصص
 - المقالات
-- الرسائل
 - الأفكار
 - التلخيص
 - إعادة الصياغة
+- الرسائل
 - الوصف
 - المحتوى الإبداعي
+- العناوين
+- التخطيط للكتب
 
 إذا طلب المستخدم نصًا جاهزًا، أعطه النص مباشرة.
+
+إذا طلب تحسين نص، حافظ على المعنى الأصلي وحسّن الأسلوب.
+
+إذا طلب قصة، اجعلها مترابطة ومنظمة.
 """
 }
 
 
 # =========================================================
-# TOOL DEFINITIONS
+# Helpers
 # =========================================================
 
-TOOLS = [
-
-    {
-        "type": "function",
-        "function": {
-            "name": "calculator",
-
-            "description": (
-                "احسب العمليات الحسابية بدقة. "
-                "استخدم هذه الأداة عندما يحتاج السؤال "
-                "إلى عملية حسابية أو نتيجة رياضية."
-            ),
-
-            "parameters": {
-                "type": "object",
-
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": (
-                            "عملية حسابية مثل "
-                            "25 * 18 أو (100 / 4) + 7"
-                        )
-                    }
-                },
-
-                "required": [
-                    "expression"
-                ]
-            }
-        }
-    },
-
-
-    {
-        "type": "function",
-        "function": {
-            "name": "current_datetime",
-
-            "description": (
-                "الحصول على التاريخ والوقت الحاليين "
-                "من خادم NORYN."
-            ),
-
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    }
-
-]
-
-
-# =========================================================
-# SAFE CALCULATOR
-# =========================================================
-
-ALLOWED_OPERATORS = {
-
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
-    ast.Pow: operator.pow,
-    ast.Mod: operator.mod,
-    ast.USub: operator.neg,
-    ast.UAdd: operator.pos,
-
-}
-
-
-def safe_calculate(expression):
+def clean_text(value, default=""):
     """
-    آلة حاسبة آمنة نسبيًا باستخدام AST.
-
-    لا تستخدم eval مباشرة.
+    تحويل القيمة إلى نص آمن.
     """
-
-    expression = str(
-        expression
-    ).strip()
-
-
-    if not expression:
-        raise ValueError(
-            "التعبير الحسابي فارغ."
-        )
-
-
-    if len(expression) > 200:
-        raise ValueError(
-            "التعبير الحسابي طويل جدًا."
-        )
-
-
-    # منع بعض الرموز غير المطلوبة
-    forbidden = [
-        "__",
-        "import",
-        "open",
-        "exec",
-        "eval",
-        "lambda",
-        ";"
-    ]
-
-
-    lower_expression = expression.lower()
-
-
-    for word in forbidden:
-
-        if word in lower_expression:
-            raise ValueError(
-                "التعبير يحتوي على رمز غير مسموح."
-            )
-
-
-    node = ast.parse(
-        expression,
-        mode="eval"
-    )
-
-
-    def evaluate(current):
-
-        # Number
-        if isinstance(
-            current,
-            ast.Constant
-        ):
-
-            if isinstance(
-                current.value,
-                (int, float)
-            ):
-
-                if abs(
-                    current.value
-                ) > 10**100:
-
-                    raise ValueError(
-                        "الرقم كبير جدًا."
-                    )
-
-                return current.value
-
-
-            raise ValueError(
-                "قيمة غير مسموحة."
-            )
-
-
-        # Binary operator
-        if isinstance(
-            current,
-            ast.BinOp
-        ):
-
-            left = evaluate(
-                current.left
-            )
-
-            right = evaluate(
-                current.right
-            )
-
-
-            operation = ALLOWED_OPERATORS.get(
-                type(current.op)
-            )
-
-
-            if operation is None:
-                raise ValueError(
-                    "عملية غير مسموحة."
-                )
-
-
-            result = operation(
-                left,
-                right
-            )
-
-
-            if isinstance(
-                result,
-                (int, float)
-            ):
-
-                if abs(result) > 10**100:
-                    raise ValueError(
-                        "النتيجة كبيرة جدًا."
-                    )
-
-
-            return result
-
-
-        # Unary
-        if isinstance(
-            current,
-            ast.UnaryOp
-        ):
-
-            operation = ALLOWED_OPERATORS.get(
-                type(current.op)
-            )
-
-
-            if operation is None:
-                raise ValueError(
-                    "عملية غير مسموحة."
-                )
-
-
-            value = evaluate(
-                current.operand
-            )
-
-
-            return operation(
-                value
-            )
-
-
-        raise ValueError(
-            "تعبير غير مسموح."
-        )
-
-
-    result = evaluate(
-        node.body
-    )
-
-
-    if isinstance(
-        result,
-        float
-    ):
-
-        if result.is_integer():
-            return int(result)
-
-
-    return result
-
-
-# =========================================================
-# TOOL EXECUTION
-# =========================================================
-
-def execute_tool(
-    name,
-    arguments
-):
-
-    try:
-
-        if name == "calculator":
-
-            expression = arguments.get(
-                "expression",
-                ""
-            )
-
-            result = safe_calculate(
-                expression
-            )
-
-            return {
-                "ok": True,
-                "tool": "calculator",
-                "expression": expression,
-                "result": result
-            }
-
-
-        if name == "current_datetime":
-
-            now = datetime.now(
-                timezone.utc
-            )
-
-            return {
-                "ok": True,
-                "tool": "current_datetime",
-                "utc": now.isoformat()
-            }
-
-
-        return {
-            "ok": False,
-            "error": (
-                "الأداة المطلوبة غير موجودة."
-            )
-        }
-
-
-    except Exception as error:
-
-        return {
-            "ok": False,
-            "error": str(error)
-        }
-
-
-# =========================================================
-# TEXT HELPERS
-# =========================================================
-
-def clean_text(
-    value,
-    default=""
-):
-
     if value is None:
         return default
 
-    return str(
-        value
-    ).strip()
+    return str(value).strip()
 
 
-def get_mode_prompt(
-    mode
-):
-
+def get_mode_prompt(mode):
+    """
+    الحصول على Prompt الخاص بالوضع.
+    """
     mode = clean_text(
         mode,
         "general"
     ).lower()
 
-
-    return MODE_PROMPTS.get(
+    return PROMPTS.get(
         mode,
-        MODE_PROMPTS["general"]
+        PROMPTS["general"]
     )
 
 
 # =========================================================
-# CODE DETECTION
+# Code Detection
 # =========================================================
 
-def looks_like_code_request(
-    message
-):
+CODE_KEYWORDS = [
 
-    keywords = [
+    "اكتب كود",
+    "أنشئ كود",
+    "اعطني كود",
+    "أعطني كود",
+    "اصنع كود",
+    "أنشئ لعبة",
+    "اصنع لعبة",
+    "اكتب لعبة",
+    "لعبة html",
+    "ملف html",
+    "صفحة html",
+    "html",
+    "css",
+    "javascript",
+    "python",
+    "flask",
+    "canvas",
+    "برمج",
+    "برمجة",
+    "كود كامل",
+    "مشروع",
+    "website",
+    "web app",
+    "javascript code",
+    "python code",
+    "html code",
+    "css code",
+    "game",
+    "code"
+]
 
-        "اكتب كود",
-        "أكتب كود",
-        "اعطني كود",
-        "أعطني كود",
-        "أنشئ كود",
-        "اصنع كود",
-        "أنشئ لعبة",
-        "اصنع لعبة",
-        "لعبة html",
-        "ملف html",
-        "كود كامل",
-        "برمج",
-        "برمجة",
 
-        "html",
-        "css",
-        "javascript",
-        "python",
-        "flask",
+def is_code_request(message, mode):
+    """
+    تحديد ما إذا كان الطلب برمجيًا.
+    """
 
-        "code",
-        "coding",
-        "javascript",
-        "website",
-        "web app"
-
-    ]
-
+    if mode == "code":
+        return True
 
     text = message.lower()
 
-
     return any(
         keyword.lower() in text
-        for keyword in keywords
+        for keyword in CODE_KEYWORDS
     )
 
 
 # =========================================================
-# BUILD SYSTEM PROMPT
+# Code Instructions
 # =========================================================
 
-def build_system_prompt(
-    mode,
-    message
-):
+CODE_REQUEST_PROMPT = """
 
-    prompt = (
-        BASE_PERSONALITY
-        + "\n\n"
-        + get_mode_prompt(mode)
-    )
+هذه الرسالة تبدو مرتبطة بالبرمجة أو إنشاء مشروع.
 
+قبل إرسال الإجابة:
 
-    if looks_like_code_request(
-        message
-    ):
-
-        prompt += """
-
-هذه الرسالة تبدو مرتبطة بالبرمجة.
-
-قبل إنهاء الإجابة:
-
-- راجع الكود.
-- لا تقطعه.
-- لا تستخدم "..." بدل أجزاء مطلوبة.
-- أغلق جميع HTML tags.
+- لا تقطع الكود.
+- لا تستبدل أجزاء الكود بـ "...".
 - أغلق جميع الأقواس.
-- أكمل جميع الدوال.
-- تأكد من صحة JavaScript.
-- إذا طلب المستخدم ملفًا واحدًا، أعطه ملفًا واحدًا كاملًا.
+- أغلق جميع الدوال.
+- أغلق جميع HTML tags.
+- أكمل JavaScript.
+- تأكد من أسماء العناصر المستخدمة في JavaScript.
+- تأكد من أن IDs الموجودة في JavaScript موجودة في HTML إذا كان الملف واحدًا.
+- إذا كان المطلوب ملف HTML واحدًا، أرسل ملف HTML واحدًا كاملًا.
+- اجعل المشروع قابلًا للتشغيل قدر الإمكان.
+- لا تضع شرحًا طويلًا داخل الكود.
+- اجعل الكود أولوية على الشرح.
 """
-
-
-    prompt += """
-
-إذا احتاج السؤال إلى عملية حسابية:
-استخدم أداة calculator بدل التخمين.
-
-إذا احتاج السؤال إلى الوقت أو التاريخ الحالي:
-استخدم أداة current_datetime.
-
-لا تستخدم الأدوات بدون سبب.
-"""
-
-
-    return prompt
 
 
 # =========================================================
-# CONVERSATION HISTORY
+# Build Conversation Messages
 # =========================================================
 
 def build_messages(
@@ -696,89 +402,117 @@ def build_messages(
     history,
     current_message
 ):
+    """
+    تحويل history القادمة من app.js
+    إلى صيغة Chat Completion:
+
+    system
+    user
+    assistant
+    user
+    assistant
+    ...
+    """
 
     messages = [
-
         {
             "role": "system",
             "content": system_prompt
         }
-
     ]
 
 
-    if not isinstance(
-        history,
-        list
-    ):
-
+    if not isinstance(history, list):
         history = []
 
 
-    cleaned = []
+    cleaned_history = []
 
 
     for item in history:
 
-        if not isinstance(
-            item,
-            dict
-        ):
+        if not isinstance(item, dict):
             continue
-
 
         message_type = clean_text(
             item.get("type")
         ).lower()
 
-
         text = clean_text(
             item.get("text")
         )
 
-
         if not text:
             continue
 
-
         if message_type == "user":
 
-            cleaned.append({
-
+            cleaned_history.append({
                 "role": "user",
-
                 "content": text
-
             })
 
+        elif message_type in (
+            "ai",
+            "assistant"
+        ):
 
-        elif message_type == "ai":
-
-            cleaned.append({
-
+            cleaned_history.append({
                 "role": "assistant",
-
                 "content": text
-
             })
 
 
-    cleaned = cleaned[
+    # -----------------------------------------------------
+    # لا نسمح بإرسال عدد ضخم من الرسائل
+    # -----------------------------------------------------
+
+    cleaned_history = cleaned_history[
         -MAX_HISTORY_MESSAGES:
     ]
 
 
-    messages.extend(
-        cleaned
-    )
+    # -----------------------------------------------------
+    # التحكم في حجم النص
+    # نحتفظ بالرسائل الأخيرة لأنها الأهم للسياق
+    # -----------------------------------------------------
 
+    selected = []
+
+    total_chars = 0
+
+
+    for item in reversed(cleaned_history):
+
+        content = item["content"]
+
+        size = len(content)
+
+        if (
+            selected
+            and
+            total_chars + size > MAX_HISTORY_CHARS
+        ):
+            break
+
+        selected.append(item)
+
+        total_chars += size
+
+
+    selected.reverse()
+
+
+    messages.extend(selected)
+
+
+    # -----------------------------------------------------
+    # إضافة الرسالة الحالية
+    # -----------------------------------------------------
 
     messages.append({
-
         "role": "user",
-
         "content": current_message
-
     })
 
 
@@ -786,15 +520,16 @@ def build_messages(
 
 
 # =========================================================
-# RESPONSE HELPERS
+# Extract Reply
 # =========================================================
 
-def extract_message(
-    response
-):
+def extract_reply(response):
+    """
+    استخراج النص من استجابة Hugging Face.
+    """
 
     if not response:
-        return None
+        return ""
 
 
     try:
@@ -807,304 +542,50 @@ def extract_message(
 
 
         if not choices:
-            return None
+            return ""
 
 
-        return choices[0].message
+        first = choices[0]
 
 
-    except Exception:
+        message = getattr(
+            first,
+            "message",
+            None
+        )
 
-        return None
+
+        if message is None:
+            return ""
 
 
-def extract_content(
-    message
-):
+        content = getattr(
+            message,
+            "content",
+            None
+        )
 
-    if message is None:
+
+        if content is None:
+            return ""
+
+
+        return str(content).strip()
+
+
+    except Exception as error:
+
+        print(
+            "NORYN extract error:",
+            repr(error),
+            flush=True
+        )
+
         return ""
 
 
-    content = getattr(
-        message,
-        "content",
-        None
-    )
-
-
-    if content is None:
-        return ""
-
-
-    return str(
-        content
-    ).strip()
-
-
-def extract_tool_calls(
-    message
-):
-
-    if message is None:
-        return []
-
-
-    tool_calls = getattr(
-        message,
-        "tool_calls",
-        None
-    )
-
-
-    if not tool_calls:
-        return []
-
-
-    return tool_calls
-
-
 # =========================================================
-# CONVERT TOOL CALL
-# =========================================================
-
-def serialize_tool_call(
-    tool_call
-):
-
-    function = getattr(
-        tool_call,
-        "function",
-        None
-    )
-
-
-    if function is None:
-
-        return None
-
-
-    name = getattr(
-        function,
-        "name",
-        ""
-    )
-
-
-    arguments = getattr(
-        function,
-        "arguments",
-        "{}"
-    )
-
-
-    call_id = getattr(
-        tool_call,
-        "id",
-        ""
-    )
-
-
-    call_type = getattr(
-        tool_call,
-        "type",
-        "function"
-    )
-
-
-    return {
-
-        "id": call_id,
-
-        "type": call_type,
-
-        "function": {
-
-            "name": name,
-
-            "arguments": arguments
-
-        }
-
-    }
-
-
-# =========================================================
-# CHAT WITH TOOLS
-# =========================================================
-
-def run_ai(
-    messages
-):
-
-    current_messages = list(
-        messages
-    )
-
-
-    for round_number in range(
-        MAX_TOOL_ROUNDS
-    ):
-
-        response = client.chat.completions.create(
-
-            model=MODEL,
-
-            messages=current_messages,
-
-            tools=TOOLS,
-
-            tool_choice="auto",
-
-            max_tokens=MAX_TOKENS,
-
-            temperature=TEMPERATURE
-
-        )
-
-
-        assistant_message = extract_message(
-            response
-        )
-
-
-        if assistant_message is None:
-
-            raise RuntimeError(
-                "النموذج لم يُرجع رسالة."
-            )
-
-
-        tool_calls = extract_tool_calls(
-            assistant_message
-        )
-
-
-        # ---------------------------------------------
-        # No tools
-        # ---------------------------------------------
-
-        if not tool_calls:
-
-            content = extract_content(
-                assistant_message
-            )
-
-
-            if not content:
-
-                raise RuntimeError(
-                    "النموذج أعاد إجابة فارغة."
-                )
-
-
-            return content
-
-
-        # ---------------------------------------------
-        # Serialize assistant tool calls
-        # ---------------------------------------------
-
-        serialized_calls = []
-
-
-        for tool_call in tool_calls:
-
-            serialized = serialize_tool_call(
-                tool_call
-            )
-
-
-            if serialized:
-                serialized_calls.append(
-                    serialized
-                )
-
-
-        # ---------------------------------------------
-        # Add assistant message
-        # ---------------------------------------------
-
-        current_messages.append({
-
-            "role": "assistant",
-
-            "content": extract_content(
-                assistant_message
-            ) or None,
-
-            "tool_calls": serialized_calls
-
-        })
-
-
-        # ---------------------------------------------
-        # Execute tools
-        # ---------------------------------------------
-
-        for tool_call in serialized_calls:
-
-            function = tool_call.get(
-                "function",
-                {}
-            )
-
-
-            name = function.get(
-                "name",
-                ""
-            )
-
-
-            raw_arguments = function.get(
-                "arguments",
-                "{}"
-            )
-
-
-            try:
-
-                arguments = json.loads(
-                    raw_arguments
-                )
-
-            except Exception:
-
-                arguments = {}
-
-
-            result = execute_tool(
-                name,
-                arguments
-            )
-
-
-            current_messages.append({
-
-                "role": "tool",
-
-                "tool_call_id":
-                    tool_call.get(
-                        "id",
-                        ""
-                    ),
-
-                "content":
-                    json.dumps(
-                        result,
-                        ensure_ascii=False
-                    )
-
-            })
-
-
-    raise RuntimeError(
-        "تم تجاوز الحد الأقصى لاستدعاءات الأدوات."
-    )
-
-
-# =========================================================
-# HOME
+# Home
 # =========================================================
 
 @app.route("/")
@@ -1116,49 +597,41 @@ def home():
 
 
 # =========================================================
-# HEALTH
+# Health
 # =========================================================
 
-@app.route(
-    "/health"
-)
+@app.route("/health")
 def health():
 
     return jsonify({
 
         "ok": True,
 
-        "ai":
-            bool(HF_TOKEN),
+        "ai": bool(HF_TOKEN),
 
-        "model":
-            MODEL,
+        "model": MODEL,
 
-        "service":
-            "NORYN AI",
+        "service": "NORYN AI",
 
-        "version":
-            "7",
+        "version": "7.0",
 
-        "max_tokens":
-            MAX_TOKENS,
+        "memory": True,
 
-        "history_messages":
+        "conversation_context": True,
+
+        "max_tokens": MAX_TOKENS,
+
+        "max_history_messages":
             MAX_HISTORY_MESSAGES,
 
-        "tools": [
-
-            "calculator",
-
-            "current_datetime"
-
-        ]
+        "max_history_chars":
+            MAX_HISTORY_CHARS
 
     })
 
 
 # =========================================================
-# CHAT
+# Chat API
 # =========================================================
 
 @app.route(
@@ -1167,9 +640,9 @@ def health():
 )
 def chat():
 
-    # -----------------------------------------------------
+    # =====================================================
     # Read JSON
-    # -----------------------------------------------------
+    # =====================================================
 
     data = request.get_json(
         silent=True
@@ -1177,9 +650,7 @@ def chat():
 
 
     message = clean_text(
-        data.get(
-            "message"
-        )
+        data.get("message")
     )
 
 
@@ -1198,9 +669,18 @@ def chat():
     )
 
 
-    # -----------------------------------------------------
-    # Validation
-    # -----------------------------------------------------
+    # =====================================================
+    # Validate Mode
+    # =====================================================
+
+    if mode not in PROMPTS:
+
+        mode = "general"
+
+
+    # =====================================================
+    # Validate Message
+    # =====================================================
 
     if not message:
 
@@ -1214,17 +694,9 @@ def chat():
         }), 400
 
 
-    if len(message) > MAX_MESSAGE_LENGTH:
-
-        return jsonify({
-
-            "ok": False,
-
-            "error":
-                "الرسالة طويلة جدًا."
-
-        }), 413
-
+    # =====================================================
+    # Validate Token
+    # =====================================================
 
     if not HF_TOKEN:
 
@@ -1233,49 +705,153 @@ def chat():
             "ok": False,
 
             "error":
-                "HF_TOKEN غير موجود في Render."
+                "HF_TOKEN غير موجود في إعدادات Render."
 
         }), 500
 
 
-    # -----------------------------------------------------
-    # System prompt
-    # -----------------------------------------------------
+    # =====================================================
+    # Input Limit
+    # =====================================================
 
-    system_prompt = build_system_prompt(
+    if len(message) > 40000:
 
-        mode,
+        return jsonify({
 
-        message
+            "ok": False,
 
+            "error":
+                "الرسالة طويلة جدًا. حاول تقليل حجمها."
+
+        }), 413
+
+
+    # =====================================================
+    # System Prompt
+    # =====================================================
+
+    system_prompt = get_mode_prompt(
+        mode
     )
 
 
-    # -----------------------------------------------------
-    # Conversation
-    # -----------------------------------------------------
+    # =====================================================
+    # Code Mode
+    # =====================================================
+
+    if is_code_request(
+        message,
+        mode
+    ):
+
+        system_prompt += (
+            CODE_REQUEST_PROMPT
+        )
+
+
+    # =====================================================
+    # Build Conversation
+    # =====================================================
 
     messages = build_messages(
-
-        system_prompt,
-
-        history,
-
-        message
-
+        system_prompt=system_prompt,
+        history=history,
+        current_message=message
     )
 
 
-    # -----------------------------------------------------
-    # AI
-    # -----------------------------------------------------
+    # =====================================================
+    # Debug Information
+    # =====================================================
+
+    print(
+        "\n========== NORYN REQUEST ==========",
+        flush=True
+    )
+
+    print(
+        "Mode:",
+        mode,
+        flush=True
+    )
+
+    print(
+        "Model:",
+        MODEL,
+        flush=True
+    )
+
+    print(
+        "History messages:",
+        len(messages) - 2,
+        flush=True
+    )
+
+    print(
+        "Current message length:",
+        len(message),
+        flush=True
+    )
+
+    print(
+        "===================================\n",
+        flush=True
+    )
+
+
+    # =====================================================
+    # Hugging Face Request
+    # =====================================================
 
     try:
 
-        reply = run_ai(
-            messages
+        response = client.chat.completions.create(
+
+            model=MODEL,
+
+            messages=messages,
+
+            max_tokens=MAX_TOKENS,
+
+            temperature=TEMPERATURE
+
         )
 
+
+        # =================================================
+        # Extract Reply
+        # =================================================
+
+        reply = extract_reply(
+            response
+        )
+
+
+        # =================================================
+        # Empty Response
+        # =================================================
+
+        if not reply:
+
+            print(
+                "NORYN ERROR: Empty model response",
+                flush=True
+            )
+
+
+            return jsonify({
+
+                "ok": False,
+
+                "error":
+                    "النموذج لم يُرجع إجابة."
+
+            }), 502
+
+
+        # =================================================
+        # Success
+        # =================================================
 
         return jsonify({
 
@@ -1287,10 +863,19 @@ def chat():
 
             "mode": mode,
 
-            "version": "7"
+            "version": "7.0",
+
+            "memory": True,
+
+            "context_messages":
+                len(messages) - 2
 
         })
 
+
+    # =====================================================
+    # Hugging Face / Network Error
+    # =====================================================
 
     except Exception as error:
 
@@ -1301,6 +886,7 @@ def chat():
 
 
         print(
+            "Error:",
             repr(error),
             flush=True
         )
@@ -1385,17 +971,23 @@ def internal_error(error):
 
 
 # =========================================================
-# RUN
+# Local / Render Start
 # =========================================================
 
 if __name__ == "__main__":
 
-    port = int(
-        os.environ.get(
-            "PORT",
-            "8000"
+    try:
+
+        port = int(
+            os.environ.get(
+                "PORT",
+                "8000"
+            )
         )
-    )
+
+    except (TypeError, ValueError):
+
+        port = 8000
 
 
     app.run(
@@ -1407,4 +999,3 @@ if __name__ == "__main__":
         debug=False
 
     )
-```
